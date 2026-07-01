@@ -116,7 +116,7 @@ export const userStore = {
   list: async () => {
     const { data } = await supabase
       .from('user_profiles')
-      .select('*, auth_user:id(email)')
+      .select('*')
       .eq('company_id', auth.currentCompanyId())
       .order('name');
     return data || [];
@@ -133,7 +133,7 @@ export const userStore = {
     const { error: profileError } = await supabase.from('user_profiles').insert({
       id: authData.user.id,
       company_id: auth.currentCompanyId(),
-      name, role,
+      name, role, email,
       is_primary: false,
       active: true,
     });
