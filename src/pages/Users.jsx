@@ -1,19 +1,34 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { userStore, auth, ROLE_LABELS } from '../lib/auth';
 import { Plus, Pencil, Trash2, Power, X, Eye, EyeOff, Crown, ShieldCheck } from 'lucide-react';
 
 const ROLES = ['admin', 'manager', 'seller'];
 
 export default function Users() {
-  const [users, setUsers] = useState(() => userStore.list());
-  const [modal, setModal] = useState(null); // null | 'new' | user_obj
+  const isAdmin = auth.isAdmin();
+  const currentUserId = auth.currentUserId();
+
+  const [users, setUsers] = useState([]);
+  const [modal, setModal] = useState(null);
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'seller' });
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
-  const session = auth.session();
-  const isAdmin = session?.role === 'admin';
 
-  function refresh() { setUsers(userStore.list()); }
+  const refresh = useCallback(async () => {
+    const list = await userStore.list();
+    setUsers(list);
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  if (!isAdmin) {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center gap-3 text-gray-500 mt-16">
+        <ShieldCheck className="w-10 h-10 text-gray-300" />
+        <p className="font-medium">Sem permissão para acessar esta página.</p>
+      </div>
+    );
+  }
 
   function openNew() {
     setForm({ name: '', email: '', password: '', role: 'seller' });
@@ -23,48 +38,38 @@ export default function Users() {
   }
 
   function openEdit(user) {
-    setForm({ name: user.name, email: user.email, password: '', role: user.role });
+    setForm({ name: user.name, email: user.email || '', password: '', role: user.role });
     setError('');
     setShowPass(false);
     setModal(user);
   }
 
-  function save() {
+  async function save() {
     if (!form.name.trim() || !form.email.trim()) { setError('Nome e e-mail são obrigatórios.'); return; }
 
     if (modal === 'new') {
       if (!form.password.trim()) { setError('Defina uma senha.'); return; }
-      const result = userStore.create(form);
-      if (result.error) { setError(result.error); return; }
+      const result = await userStore.create(form);
+      if (result?.error) { setError(result.error); return; }
     } else {
-      const data = { name: form.name, email: form.email, role: form.role };
-      if (form.password.trim()) data.password = form.password;
-      userStore.update(modal.id, data);
+      const data = { name: form.name, role: form.role };
+      await userStore.update(modal.id, data);
     }
 
-    refresh();
+    await refresh();
     setModal(null);
   }
 
-  function remove(user) {
+  async function remove(user) {
     if (!confirm(`Remover ${user.name}?`)) return;
-    const result = userStore.remove(user.id);
+    const result = await userStore.remove(user.id);
     if (result?.error) alert(result.error);
-    else refresh();
+    else await refresh();
   }
 
-  function toggle(user) {
-    userStore.toggleActive(user.id);
-    refresh();
-  }
-
-  if (!isAdmin) {
-    return (
-      <div className="p-6 flex flex-col items-center justify-center gap-3 text-gray-500 mt-16">
-        <ShieldCheck className="w-10 h-10 text-gray-300" />
-        <p className="font-medium">Sem permissão para acessar esta página.</p>
-      </div>
-    );
+  async function toggle(user) {
+    await userStore.toggleActive(user.id);
+    await refresh();
   }
 
   return (
@@ -83,12 +88,10 @@ export default function Users() {
       <div className="space-y-3">
         {users.map(user => {
           const role = ROLE_LABELS[user.role] || { label: user.role, color: '#888' };
-          const isMe = user.id === session?.userId;
+          const isMe = user.id === currentUserId;
           return (
             <div key={user.id}
               className={`bg-white border rounded-2xl px-4 py-3.5 flex items-center gap-3 transition-opacity ${!user.active ? 'opacity-50' : ''}`}>
-
-              {/* Avatar */}
               <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
                 style={{ backgroundColor: role.color }}>
                 {user.name.slice(0, 1).toUpperCase()}
@@ -98,7 +101,7 @@ export default function Users() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-gray-800 text-sm">{user.name}</span>
                   {isMe && <span className="text-xs text-gray-400">(você)</span>}
-                  {user.primary && <Crown className="w-3.5 h-3.5 text-yellow-500" title="Admin primário" />}
+                  {user.is_primary && <Crown className="w-3.5 h-3.5 text-yellow-500" title="Admin primário" />}
                   <span className="text-xs font-medium px-2 py-0.5 rounded-full"
                     style={{ backgroundColor: role.color + '20', color: role.color }}>
                     {role.label}
@@ -107,11 +110,9 @@ export default function Users() {
                     <span className="text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">Inativo</span>
                   )}
                 </div>
-                <p className="text-xs text-gray-400 mt-0.5 truncate">{user.email}</p>
               </div>
 
-              {/* Ações */}
-              {!user.primary && (
+              {!user.is_primary && (
                 <div className="flex items-center gap-1 shrink-0">
                   <button onClick={() => toggle(user)} title={user.active ? 'Desativar' : 'Ativar'}
                     className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
@@ -132,9 +133,11 @@ export default function Users() {
             </div>
           );
         })}
+        {users.length === 0 && (
+          <p className="text-center text-gray-400 text-sm py-10">Nenhum usuário ainda</p>
+        )}
       </div>
 
-      {/* Modal */}
       {modal !== null && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
@@ -153,28 +156,29 @@ export default function Users() {
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1">E-mail *</label>
-                <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                  placeholder="email@empresa.com"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1">
-                  Senha {modal !== 'new' && <span className="font-normal text-gray-400">(deixe em branco para não alterar)</span>}
-                </label>
-                <div className="relative">
-                  <input type={showPass ? 'text' : 'password'} value={form.password}
-                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                    placeholder={modal === 'new' ? 'Senha de acesso' : '••••••••'}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                  <button type="button" onClick={() => setShowPass(p => !p)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                    {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
+              {modal === 'new' && (
+                <>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1">E-mail *</label>
+                    <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                      placeholder="email@empresa.com"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1">Senha *</label>
+                    <div className="relative">
+                      <input type={showPass ? 'text' : 'password'} value={form.password}
+                        onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                        placeholder="Senha de acesso"
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                      <button type="button" onClick={() => setShowPass(p => !p)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                        {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div>
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">Papel</label>
@@ -197,9 +201,7 @@ export default function Users() {
                 </div>
               </div>
 
-              {error && (
-                <div className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{error}</div>
-              )}
+              {error && <div className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{error}</div>}
             </div>
 
             <div className="flex gap-2 mt-5">

@@ -15,8 +15,7 @@ const MODULES = {
 const ROLES = ['admin', 'manager', 'seller'];
 
 export default function Settings() {
-  const session = auth.session();
-  const isAdmin = session?.role === 'admin';
+  const isAdmin = auth.isAdmin();
   const [perms, setPerms] = useState(() => permissionsStore.get());
   const [activeRole, setActiveRole] = useState('manager');
   const [saved, setSaved] = useState(false);
@@ -30,7 +29,7 @@ export default function Settings() {
     );
   }
 
-  function toggle(module, action) {
+  async function toggle(module, action) {
     const current = perms[activeRole]?.[module]?.[action] ?? false;
     const updated = {
       ...perms,
@@ -40,13 +39,13 @@ export default function Settings() {
       },
     };
     setPerms(updated);
-    permissionsStore.set(activeRole, module, action, !current);
+    await permissionsStore.set(activeRole, module, action, !current);
     showSaved();
   }
 
-  function reset() {
+  async function reset() {
     if (!confirm(`Resetar permissões do ${ROLE_LABELS[activeRole].label} para o padrão?`)) return;
-    permissionsStore.reset(activeRole);
+    await permissionsStore.reset(activeRole);
     setPerms(permissionsStore.get());
     showSaved();
   }
