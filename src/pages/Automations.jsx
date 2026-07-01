@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { db } from '../lib/store';
 import { auth, userStore, ROLE_LABELS } from '../lib/auth';
 import {
@@ -42,18 +42,21 @@ const FIELD_TYPES_CFG = [
 ];
 
 function StepConfig({ action, onChange, stages }) {
-  const [fields, setFields] = useState(() => db.customFields.list());
+  const [fields, setFields] = useState([]);
   const [showCreate, setShowCreate] = useState(false);
   const [newField, setNewField] = useState({ name: '', type: 'text', options: '' });
 
-  function createField() {
+  useEffect(() => { db.customFields.list().then(setFields); }, []);
+
+  async function createField() {
     if (!newField.name.trim()) return;
     const options = newField.type === 'select'
       ? newField.options.split(',').map(o => o.trim()).filter(Boolean)
       : [];
-    const f = db.customFields.create({ name: newField.name.trim(), type: newField.type, options });
-    setFields(db.customFields.list());
-    onChange({ ...action, fieldId: f.id, fieldValue: '' });
+    const f = await db.customFields.create({ name: newField.name.trim(), type: newField.type, options });
+    const updated = await db.customFields.list();
+    setFields(updated);
+    if (f) onChange({ ...action, fieldId: f.id, fieldValue: '' });
     setNewField({ name: '', type: 'text', options: '' });
     setShowCreate(false);
   }
@@ -256,26 +259,31 @@ export default function Automations() {
     return myRank > creatorRank;
   }
 
-  const [stages, setStages] = useState(() => db.stages.list());
-  const [workflows, setWorkflows] = useState(() => db.workflows.list());
+  const [stages, setStages] = useState([]);
+  const [workflows, setWorkflows] = useState([]);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [step, setStep] = useState(1);
   const [showPicker, setShowPicker] = useState(false);
   const [runResult, setRunResult] = useState(null);
 
-  function refresh() { setWorkflows(db.workflows.list()); setStages(db.stages.list()); }
+  const refresh = useCallback(async () => {
+    const [w, s] = await Promise.all([db.workflows.list(), db.stages.list()]);
+    setWorkflows(w);
+    setStages(s);
+  }, []);
 
+  useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {
     window.addEventListener('flowmate:update', refresh);
     return () => window.removeEventListener('flowmate:update', refresh);
-  }, []);
+  }, [refresh]);
 
-  function openNew() { setStages(db.stages.list()); setForm(EMPTY); setStep(1); setShowPicker(false); setModal('new'); }
-  function openEdit(wf) { setStages(db.stages.list()); setForm({ ...wf }); setStep(1); setShowPicker(false); setModal(wf); }
+  async function openNew() { const s = await db.stages.list(); setStages(s); setForm(EMPTY); setStep(1); setShowPicker(false); setModal('new'); }
+  async function openEdit(wf) { const s = await db.stages.list(); setStages(s); setForm({ ...wf }); setStep(1); setShowPicker(false); setModal(wf); }
 
-  function toggleEnabled(wf) { db.workflows.update(wf.id, { enabled: !wf.enabled }); refresh(); }
-  function remove(id) { if (!confirm('Remover automação?')) return; db.workflows.remove(id); refresh(); }
+  async function toggleEnabled(wf) { await db.workflows.update(wf.id, { enabled: !wf.enabled }); await refresh(); }
+  async function remove(id) { if (!confirm('Remover automação?')) return; await db.workflows.remove(id); await refresh(); }
 
   // Ações — agora permite duplicatas (múltiplos passos do mesmo tipo)
   function addAction(type) {
@@ -295,24 +303,24 @@ export default function Automations() {
     });
   }
 
-  function runNow(wf) {
+  async function runNow(wf) {
     for (const action of wf.actions) {
       if (action.type === 'move_stage' && !action.stageId) {
         setRunResult({ wfId: wf.id, error: 'Ação "Mover etapa" sem etapa destino. Clique em Editar e selecione a etapa.' });
         return;
       }
     }
-    const leads = db.leads.list();
+    const leads = await db.leads.list();
     const stageLeads = wf.triggerStageId ? leads.filter(l => l.stage_id === wf.triggerStageId) : leads;
     if (stageLeads.length === 0) { setRunResult({ wfId: wf.id, error: 'Nenhum lead encontrado na etapa configurada.' }); return; }
 
-    stageLeads.forEach(lead => {
-      wf.actions.forEach(action => {
-        if (action.type === 'move_stage' && action.stageId) db.leads.update(lead.id, { stage_id: action.stageId });
-        if ((action.type === 'add_note' || action.type === 'notify_team') && action.body) db.notes.create(lead.contact_id, action.body);
+    for (const lead of stageLeads) {
+      for (const action of wf.actions) {
+        if (action.type === 'move_stage' && action.stageId) await db.leads.update(lead.id, { stage_id: action.stageId });
+        if ((action.type === 'add_note' || action.type === 'notify_team') && action.body) await db.notes.create(lead.contact_id, action.body);
         if (action.type === 'add_tag' && action.tag) {
           const tags = [...(lead.contact?.tags || []).filter(t => t !== action.tag), action.tag];
-          db.contacts.update(lead.contact_id, { tags });
+          await db.contacts.update(lead.contact_id, { tags });
         }
         if (action.type === 'send_whatsapp' && action.body) {
           const phone = (lead.contact?.phone || '').replace(/\D/g, '');
@@ -322,23 +330,23 @@ export default function Automations() {
           fetch(action.body, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lead_id: lead.id }) }).catch(() => {});
         }
         if (action.type === 'set_field' && action.fieldId && lead.contact_id) {
-          const contacts = db.contacts.list();
+          const contacts = await db.contacts.list();
           const c = contacts.find(x => x.id === lead.contact_id);
-          if (c) db.contacts.update(lead.contact_id, { fields: { ...(c.fields || {}), [action.fieldId]: action.fieldValue || '' } });
+          if (c) await db.contacts.update(lead.contact_id, { fields: { ...(c.fields || {}), [action.fieldId]: action.fieldValue || '' } });
         }
-      });
-    });
+      }
+    }
 
     window.dispatchEvent(new Event('flowmate:update'));
     setRunResult({ wfId: wf.id, ok: true, count: stageLeads.length });
     setTimeout(() => setRunResult(null), 3000);
   }
 
-  function save() {
+  async function save() {
     if (!form.name.trim()) return;
-    if (modal === 'new') db.workflows.create(form);
-    else db.workflows.update(form.id, form);
-    refresh(); setModal(null);
+    if (modal === 'new') await db.workflows.create(form);
+    else await db.workflows.update(form.id, form);
+    await refresh(); setModal(null);
   }
 
   const needsStage = form.trigger === 'lead_entered_stage' || form.trigger === 'lead_moved_stage';

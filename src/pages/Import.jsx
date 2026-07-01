@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Upload, FileSpreadsheet, ArrowRight, Check, AlertCircle, Download, ShieldCheck } from 'lucide-react';
 import { db } from '../lib/store';
@@ -16,14 +16,16 @@ export default function Import() {
     );
   }
 
-  const stages = db.stages.list();
+  const [stages, setStages] = useState([]);
   const fileRef = useRef(null);
 
   const [step, setStep] = useState('upload');
   const [rows, setRows] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [map, setMap] = useState({ name: '', phone: '', email: '' });
-  const [stageId, setStageId] = useState(stages[0]?.id || '');
+  const [stageId, setStageId] = useState('');
+
+  useEffect(() => { db.stages.list().then(s => { setStages(s); if (s[0]) setStageId(s[0].id); }); }, []);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [fileName, setFileName] = useState('');
@@ -69,21 +71,21 @@ export default function Import() {
     if (file) handleFile(file);
   }
 
-  function doImport() {
+  async function doImport() {
     if (!map.name) { setError('Selecione a coluna de nome.'); return; }
     let imported = 0, skipped = 0;
 
-    rows.forEach(row => {
+    for (const row of rows) {
       const name  = map.name  ? String(row[headers.indexOf(map.name)]  || '').trim() : '';
       const phone = map.phone ? String(row[headers.indexOf(map.phone)] || '').trim() : '';
       const email = map.email ? String(row[headers.indexOf(map.email)] || '').trim() : '';
 
-      if (!name) { skipped++; return; }
+      if (!name) { skipped++; continue; }
 
-      const contact = db.contacts.create({ name, phone, email });
-      if (stageId) db.leads.create({ contact_id: contact.id, stage_id: stageId });
+      const contact = await db.contacts.create({ name, phone, email });
+      if (contact && stageId) await db.leads.create({ contact_id: contact.id, stage_id: stageId });
       imported++;
-    });
+    }
 
     setResult({ imported, skipped });
     setStep('resultado');
@@ -94,7 +96,7 @@ export default function Import() {
     setRows([]); setHeaders([]); setFileName('');
     setMap({ name: '', phone: '', email: '' });
     setResult(null); setError('');
-    setStageId(stages[0]?.id || '');
+    setStageId(stages[0]?.id ?? '');
   }
 
   function downloadTemplate() {
