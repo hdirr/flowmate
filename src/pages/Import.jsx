@@ -29,6 +29,7 @@ export default function Import() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [fileName, setFileName] = useState('');
+  const [importing, setImporting] = useState(false);
 
   function handleFile(file) {
     setError('');
@@ -72,7 +73,9 @@ export default function Import() {
   }
 
   async function doImport() {
+    if (importing) return;
     if (!map.name) { setError('Selecione a coluna de nome.'); return; }
+    setImporting(true);
     let imported = 0, skipped = 0;
 
     for (const row of rows) {
@@ -87,6 +90,7 @@ export default function Import() {
       imported++;
     }
 
+    setImporting(false);
     setResult({ imported, skipped });
     setStep('resultado');
   }
@@ -247,9 +251,10 @@ export default function Import() {
 
             <div className="flex gap-2 pt-2">
               <button onClick={reset} className="flex-1 border border-gray-200 rounded-lg py-2.5 text-sm text-gray-600 hover:bg-gray-50">Voltar</button>
-              <button onClick={doImport} disabled={!map.name}
-                className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-                Importar {rows.length} contatos
+              <button onClick={doImport} disabled={!map.name || importing}
+                className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                {importing && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />}
+                {importing ? 'Importando...' : `Importar ${rows.length} contatos`}
               </button>
             </div>
           </div>
