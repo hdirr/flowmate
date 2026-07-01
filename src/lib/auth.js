@@ -118,7 +118,7 @@ export const userStore = {
       .from('user_profiles')
       .select('*, auth_user:id(email)')
       .eq('company_id', auth.currentCompanyId())
-      .order('created_at');
+      .order('name');
     return data || [];
   },
 
