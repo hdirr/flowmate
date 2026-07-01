@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/sb-proxy/:path*",
+      "destination": "https://fwtnzxehfaqeklueojkp.supabase.co/:path*"
+    }
+  ]
+}
