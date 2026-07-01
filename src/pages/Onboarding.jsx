@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Building2, ArrowRight } from 'lucide-react';
+import { Building2, ArrowRight, LogOut } from 'lucide-react';
 
-export default function Onboarding({ onDone }) {
+export default function Onboarding({ onDone, onLogout }) {
   const [companyName, setCompanyName] = useState('');
   const [userName, setUserName] = useState('');
   const [loading, setLoading] = useState(false);
@@ -45,6 +45,9 @@ export default function Onboarding({ onDone }) {
           </div>
           <h1 className="text-2xl font-bold text-white">Bem-vindo ao FlowMate</h1>
           <p className="text-gray-500 text-sm mt-1">Configure sua empresa para começar</p>
+          <button onClick={onLogout} className="mt-3 text-xs text-gray-600 hover:text-gray-400 flex items-center gap-1 mx-auto transition-colors">
+            <LogOut className="w-3 h-3" /> Sair da conta
+          </button>
         </div>
 
         <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800 shadow-2xl">

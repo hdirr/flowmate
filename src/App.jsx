@@ -76,7 +76,7 @@ export default function App() {
   }
 
   if (status === 'unauthenticated') return <Login onLogin={handleLogin} />;
-  if (status === 'onboarding')     return <Onboarding onDone={handleOnboardingDone} />;
+  if (status === 'onboarding')     return <Onboarding onDone={handleOnboardingDone} onLogout={handleLogout} />;
 
   return (
     <BrowserRouter>
