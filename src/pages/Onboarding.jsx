@@ -23,7 +23,16 @@ export default function Onboarding({ onDone }) {
       p_user_name: userName.trim(),
     });
 
-    if (fnError) { setError(fnError.message); setLoading(false); return; }
+    if (fnError) {
+      // Se perfil já existe, apenas avança
+      if (fnError.message?.includes('duplicate key') || fnError.message?.includes('user_profiles_pkey')) {
+        onDone();
+        return;
+      }
+      setError(fnError.message);
+      setLoading(false);
+      return;
+    }
     onDone();
   }
 
