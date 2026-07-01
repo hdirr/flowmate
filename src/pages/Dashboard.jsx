@@ -1,14 +1,21 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../lib/store';
 import { Users, KanbanSquare, Bot, TrendingUp, ArrowRight } from 'lucide-react';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const leads = db.leads.list();
-  const contacts = db.contacts.list();
-  const workflows = db.workflows.list();
-  const stages = db.stages.list();
+  const [leads, setLeads] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [workflows, setWorkflows] = useState([]);
+  const [stages, setStages] = useState([]);
+
+  useEffect(() => {
+    db.leads.list().then(setLeads);
+    db.contacts.list().then(setContacts);
+    db.workflows.list().then(setWorkflows);
+    db.stages.list().then(setStages);
+  }, []);
 
   const activeWorkflows = workflows.filter(w => w.enabled).length;
 
@@ -26,10 +33,10 @@ export default function Dashboard() {
       {/* Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         {[
-          { label: 'Leads ativos',   value: leads.length,          icon: KanbanSquare, color: 'bg-blue-500',    path: '/pipeline' },
-          { label: 'Contatos',       value: contacts.length,       icon: Users,        color: 'bg-violet-500', path: '/contatos' },
-          { label: 'Robôs ativos',   value: activeWorkflows,       icon: Bot,          color: 'bg-emerald-500',path: '/automacoes' },
-          { label: 'Total de robôs', value: workflows.length,      icon: TrendingUp,   color: 'bg-amber-500',  path: '/automacoes' },
+          { label: 'Leads ativos',   value: leads.length,     icon: KanbanSquare, color: 'bg-blue-500',    path: '/pipeline' },
+          { label: 'Contatos',       value: contacts.length,  icon: Users,        color: 'bg-violet-500', path: '/contatos' },
+          { label: 'Robôs ativos',   value: activeWorkflows,  icon: Bot,          color: 'bg-emerald-500',path: '/automacoes' },
+          { label: 'Total de robôs', value: workflows.length, icon: TrendingUp,   color: 'bg-amber-500',  path: '/automacoes' },
         ].map(({ label, value, icon: Icon, color, path }) => (
           <button key={label} onClick={() => navigate(path)}
             className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 text-left hover:shadow-md transition-shadow">
@@ -65,7 +72,7 @@ export default function Dashboard() {
                 </div>
               </div>
             ))}
-            {leads.length === 0 && <p className="text-xs text-gray-400 py-2">Nenhum lead ainda</p>}
+            {leadsByStage.length === 0 && <p className="text-xs text-gray-400 py-2">Nenhuma etapa ainda</p>}
           </div>
         </div>
 
@@ -81,7 +88,7 @@ export default function Dashboard() {
             {recentContacts.map(c => (
               <div key={c.id} className="flex items-center gap-3">
                 <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center shrink-0">
-                  <span className="text-xs font-semibold text-violet-600">{c.name[0].toUpperCase()}</span>
+                  <span className="text-xs font-semibold text-violet-600">{c.name?.[0]?.toUpperCase()}</span>
                 </div>
                 <div>
                   <p className="text-sm font-medium leading-tight">{c.name}</p>

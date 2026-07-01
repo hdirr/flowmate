@@ -55,7 +55,7 @@ export const auth = {
   _loadProfile: async (userId) => {
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('*, companies(name)')
+      .select('*')
       .eq('id', userId)
       .single();
 
