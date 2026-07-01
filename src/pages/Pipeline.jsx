@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { db } from '../lib/store';
 import { auth } from '../lib/auth';
 import { Plus, User, Trash2, Check, Search, X } from 'lucide-react';
@@ -14,34 +14,35 @@ export default function Pipeline() {
   const canViewAll     = auth.can('pipeline', 'view_all');
   const isAdmin        = auth.isAdmin();
 
-  const [stages, setStages] = useState(() => db.stages.list());
-  const [leads, setLeads] = useState(() => db.leads.list());
+  const [stages, setStages] = useState([]);
+  const [leads, setLeads] = useState([]);
   const [dragging, setDragging] = useState(null);
   const [selected, setSelected] = useState(null);
   const [search, setSearch] = useState('');
-  const [editingStage, setEditingStage] = useState(null); // id da etapa sendo editada
+  const [editingStage, setEditingStage] = useState(null);
   const [editingName, setEditingName] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [newLead, setNewLead] = useState({ name: '', phone: '', stage_id: '' });
   const inputRef = useRef(null);
 
-  function refresh() {
-    setLeads(db.leads.list());
-    setStages(db.stages.list());
-  }
+  const refresh = useCallback(async () => {
+    const [l, s] = await Promise.all([db.leads.list(), db.stages.list()]);
+    setLeads(l);
+    setStages(s);
+  }, []);
 
-  // Re-renderiza quando uma automação muda dados
+  useEffect(() => { refresh(); }, [refresh]);
+
   useEffect(() => {
     window.addEventListener('flowmate:update', refresh);
     return () => window.removeEventListener('flowmate:update', refresh);
-  }, []);
+  }, [refresh]);
 
-  function saveStages(updated) {
-    db.stages.save(updated);
+  async function saveStages(updated) {
+    await db.stages.save(updated);
     setStages([...updated]);
   }
 
-  // Inline edit
   function startEdit(stage, e) {
     e.stopPropagation();
     setEditingStage(stage.id);
@@ -49,60 +50,60 @@ export default function Pipeline() {
     setTimeout(() => inputRef.current?.select(), 0);
   }
 
-  function commitEdit(stageId) {
+  async function commitEdit(stageId) {
     if (!editingName.trim()) { setEditingStage(null); return; }
     const updated = stages.map(s => s.id === stageId ? { ...s, name: editingName.trim() } : s);
-    saveStages(updated);
+    await saveStages(updated);
     setEditingStage(null);
   }
 
-  function changeColor(stageId) {
+  async function changeColor(stageId) {
     const updated = stages.map(s => {
       if (s.id !== stageId) return s;
       const next = COLORS[(COLORS.indexOf(s.color) + 1) % COLORS.length];
       return { ...s, color: next };
     });
-    saveStages(updated);
+    await saveStages(updated);
   }
 
-  function addStage() {
+  async function addStage() {
     const newStage = {
-      id: 's' + Date.now(),
       name: 'Nova etapa',
       color: COLORS[stages.length % COLORS.length],
       position: stages.length + 1,
+      company_id: auth.currentCompanyId(),
     };
-    const updated = [...stages, newStage];
-    saveStages(updated);
-    // Entra em modo de edição automaticamente
-    setEditingStage(newStage.id);
-    setEditingName(newStage.name);
-    setTimeout(() => inputRef.current?.select(), 50);
+    const row = await db.stages.create(newStage);
+    if (row) {
+      setStages(prev => [...prev, row]);
+      setEditingStage(row.id);
+      setEditingName(row.name);
+      setTimeout(() => inputRef.current?.select(), 50);
+    }
   }
 
-  function removeStage(stageId) {
+  async function removeStage(stageId) {
     if (stages.length <= 1) return;
     if (!confirm('Remover etapa? Os leads nela serão perdidos.')) return;
-    const updated = stages.filter(s => s.id !== stageId).map((s, i) => ({ ...s, position: i + 1 }));
-    saveStages(updated);
+    await db.stages.remove(stageId);
+    await refresh();
   }
 
-  // Leads
-  function createLead() {
+  async function createLead() {
     if (!newLead.name.trim()) return;
     const stageId = newLead.stage_id || stages[0]?.id;
-    const contact = db.contacts.create({ name: newLead.name.trim(), phone: newLead.phone.trim() });
-    db.leads.create({ contact_id: contact.id, stage_id: stageId });
-    refresh();
+    const contact = await db.contacts.create({ name: newLead.name.trim(), phone: newLead.phone.trim() });
+    if (contact) await db.leads.create({ contact_id: contact.id, stage_id: stageId });
+    await refresh();
     setNewLead({ name: '', phone: '', stage_id: '' });
     setShowModal(false);
   }
 
   function onDragStart(lead) { setDragging(lead); }
-  function onDrop(stageId) {
+  async function onDrop(stageId) {
     if (dragging && dragging.stage_id !== stageId) {
-      db.leads.update(dragging.id, { stage_id: stageId });
-      refresh();
+      await db.leads.update(dragging.id, { stage_id: stageId });
+      await refresh();
     }
     setDragging(null);
   }
@@ -121,7 +122,6 @@ export default function Pipeline() {
         )}
       </div>
 
-      {/* Barra de busca */}
       <div className="relative mb-4 max-w-xs">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <input
@@ -141,7 +141,7 @@ export default function Pipeline() {
         {stages.map(stage => {
           const stageLeads = leads.filter(l =>
             l.stage_id === stage.id &&
-            (canViewAll || l.created_by === session?.userId) &&
+            (canViewAll || l.created_by === session?.user?.id) &&
             (!search || l.contact?.name?.toLowerCase().includes(search.toLowerCase()) ||
               l.contact?.phone?.includes(search))
           );
@@ -154,14 +154,11 @@ export default function Pipeline() {
               onDragOver={e => e.preventDefault()}
               onDrop={() => onDrop(stage.id)}
             >
-              {/* Header da etapa */}
               <div className="flex items-center gap-2 mb-3 group">
-                {/* Bolinha de cor — clica para trocar */}
                 <button
                   onClick={() => changeColor(stage.id)}
                   className="w-3 h-3 rounded-full shrink-0 ring-2 ring-transparent hover:ring-gray-300 transition-all"
                   style={{ background: stage.color }}
-                  title="Clique para trocar cor"
                 />
 
                 {isEditing && isAdmin ? (
@@ -186,7 +183,6 @@ export default function Pipeline() {
                   <span
                     onClick={e => isAdmin && startEdit(stage, e)}
                     className={`flex-1 text-left text-sm font-semibold text-gray-700 truncate ${isAdmin ? 'cursor-pointer hover:text-blue-600' : 'cursor-default'}`}
-                    title={isAdmin ? 'Clique para renomear' : ''}
                   >
                     {stage.name}
                   </span>
@@ -195,22 +191,17 @@ export default function Pipeline() {
                 <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5 shrink-0">{stageLeads.length}</span>
 
                 {isAdmin && stages.length > 1 && (
-                  <button
-                    onClick={() => removeStage(stage.id)}
-                    className="text-gray-300 hover:text-red-400 transition-colors shrink-0"
-                    title="Remover etapa"
-                  >
+                  <button onClick={() => removeStage(stage.id)} className="text-gray-300 hover:text-red-400 transition-colors shrink-0">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
 
-              {/* Cards */}
               <div className="flex flex-col gap-2 flex-1">
                 {stageLeads.map(lead => (
                   <div
                     key={lead.id}
-                    draggable={canEditLead && (canViewAll || lead.created_by === session?.userId)}
+                    draggable={canEditLead && (canViewAll || lead.created_by === session?.user?.id)}
                     onDragStart={() => onDragStart(lead)}
                     onClick={() => setSelected(lead)}
                     className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm cursor-pointer hover:shadow-md hover:border-blue-200 transition-all"
@@ -234,7 +225,6 @@ export default function Pipeline() {
           );
         })}
 
-        {/* Botão adicionar etapa — só admin */}
         {isAdmin && (
           <button
             onClick={addStage}
@@ -249,8 +239,12 @@ export default function Pipeline() {
         <LeadPanel
           lead={selected}
           onClose={() => setSelected(null)}
-          onUpdate={() => { refresh(); setSelected(db.leads.list().find(l => l.id === selected.id) || null); }}
-          onRemove={() => { refresh(); setSelected(null); }}
+          onUpdate={async () => {
+            await refresh();
+            const updated = leads.find(l => l.id === selected.id);
+            setSelected(updated || null);
+          }}
+          onRemove={async () => { await refresh(); setSelected(null); }}
         />
       )}
 

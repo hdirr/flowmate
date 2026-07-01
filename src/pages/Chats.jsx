@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { db } from '../lib/store';
 import { Send, Trash2, MessageCircle, Search, UserCog, ArrowLeft } from 'lucide-react';
 import ContactPanel from '../components/ContactPanel';
@@ -14,33 +14,45 @@ function timeLabel(iso) {
 }
 
 export default function Chats() {
-  const [contacts] = useState(() => db.contacts.list());
+  const [contacts, setContacts] = useState([]);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(null);
   const [showPanel, setShowPanel] = useState(false);
   const [notes, setNotes] = useState([]);
+  const [lastNotes, setLastNotes] = useState({});
   const [text, setText] = useState('');
   const bottomRef = useRef(null);
 
   useEffect(() => {
+    db.contacts.list().then(setContacts);
+  }, []);
+
+  const loadNotes = useCallback(async (contactId) => {
+    const n = await db.notes.list(contactId);
+    setNotes(n);
+    // update last note preview
+    setLastNotes(prev => ({ ...prev, [contactId]: n.at(-1)?.text || 'Sem notas' }));
+  }, []);
+
+  useEffect(() => {
     if (!selected) return;
-    setNotes(db.notes.list(selected.id));
-  }, [selected]);
+    loadNotes(selected.id);
+  }, [selected, loadNotes]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [notes]);
 
-  function send() {
+  async function send() {
     if (!text.trim() || !selected) return;
-    db.notes.create(selected.id, text.trim());
-    setNotes(db.notes.list(selected.id));
+    await db.notes.create(selected.id, text.trim());
     setText('');
+    await loadNotes(selected.id);
   }
 
-  function removeNote(id) {
-    db.notes.remove(id);
-    setNotes(db.notes.list(selected.id));
+  async function removeNote(id) {
+    await db.notes.remove(id);
+    await loadNotes(selected.id);
   }
 
   const filtered = contacts.filter(c =>
@@ -48,23 +60,9 @@ export default function Chats() {
     (c.phone || '').includes(search)
   );
 
-  const allNotes = (() => {
-    try { return JSON.parse(localStorage.getItem('notes')) || []; } catch { return []; }
-  })();
-
-  function lastNote(contactId) {
-    const n = allNotes.filter(n => n.contact_id === contactId).at(-1);
-    return n ? n.text : 'Sem notas';
-  }
-
   return (
     <div className="flex h-full relative">
-
-      {/* Lista de contatos — sempre visível desktop, visível no mobile só se não tiver selecionado */}
-      <div className={`
-        w-full md:w-72 shrink-0 border-r border-gray-100 flex flex-col bg-white
-        ${selected ? 'hidden md:flex' : 'flex'}
-      `}>
+      <div className={`w-full md:w-72 shrink-0 border-r border-gray-100 flex flex-col bg-white ${selected ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-4 border-b border-gray-100">
           <h1 className="text-lg font-bold mb-3">Chats</h1>
           <div className="relative">
@@ -94,27 +92,17 @@ export default function Chats() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold truncate">{c.name}</p>
-                <p className="text-xs text-gray-400 truncate">{lastNote(c.id)}</p>
+                <p className="text-xs text-gray-400 truncate">{lastNotes[c.id] || 'Sem notas'}</p>
               </div>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Área de chat — tela cheia no mobile quando selecionado */}
       {selected ? (
-        <div className={`
-          flex-1 flex flex-col bg-gray-50
-          absolute inset-0 md:static
-          ${selected ? 'flex' : 'hidden md:flex'}
-        `}>
-          {/* Header */}
+        <div className="flex-1 flex flex-col bg-gray-50 absolute inset-0 md:static flex">
           <div className="bg-white border-b border-gray-100 px-4 py-3 flex items-center gap-3">
-            {/* Botão voltar — só mobile */}
-            <button
-              onClick={() => setSelected(null)}
-              className="md:hidden text-gray-400 hover:text-gray-700 mr-1"
-            >
+            <button onClick={() => setSelected(null)} className="md:hidden text-gray-400 hover:text-gray-700 mr-1">
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
@@ -124,7 +112,7 @@ export default function Chats() {
               <p className="font-semibold text-sm">{selected.name}</p>
               <p className="text-xs text-gray-400">{selected.phone || selected.email || 'Sem contato'}</p>
             </div>
-            <button onClick={() => setShowPanel(true)} className="text-gray-400 hover:text-blue-500 transition-colors" title="Editar contato">
+            <button onClick={() => setShowPanel(true)} className="text-gray-400 hover:text-blue-500 transition-colors">
               <UserCog className="w-5 h-5" />
             </button>
           </div>
@@ -137,7 +125,6 @@ export default function Chats() {
             />
           )}
 
-          {/* Mensagens */}
           <div className="flex-1 overflow-y-auto p-4 md:p-5 space-y-2">
             {notes.length === 0 && (
               <div className="text-center py-16 text-gray-400">
@@ -166,7 +153,6 @@ export default function Chats() {
             <div ref={bottomRef} />
           </div>
 
-          {/* Input */}
           <div className="bg-white border-t border-gray-100 p-3 md:p-4 flex gap-2 md:gap-3">
             <input
               placeholder="Escreva uma nota..."

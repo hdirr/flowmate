@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { db } from '../lib/store';
 import { auth } from '../lib/auth';
 import { Plus, Search, User, Phone, Mail, Trash2, X, KanbanSquare, Upload } from 'lucide-react';
@@ -9,54 +9,62 @@ const EMPTY = { name: '', phone: '', email: '', stage_id: null };
 
 export default function Contacts() {
   const session = auth.session();
-  const canCreate    = auth.can('contacts', 'create');
-  const canEdit      = auth.can('contacts', 'edit');
-  const canRemove    = auth.can('contacts', 'remove');
-  const canViewAll   = auth.can('contacts', 'view_all');
-  const canImport    = auth.can('import', 'access');
+  const canCreate  = auth.can('contacts', 'create');
+  const canRemove  = auth.can('contacts', 'remove');
+  const canViewAll = auth.can('contacts', 'view_all');
+  const canImport  = auth.can('import', 'access');
 
-  const stages = db.stages.list();
-  const [contacts, setContacts] = useState(() => db.contacts.list());
+  const [stages, setStages] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [allLeads, setAllLeads] = useState([]);
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(EMPTY);
   const [showModal, setShowModal] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [panel, setPanel] = useState(null);
 
-  function refresh() { setContacts(db.contacts.list()); }
+  const refresh = useCallback(async () => {
+    const [c, s, l] = await Promise.all([db.contacts.list(), db.stages.list(), db.leads.list()]);
+    setContacts(c);
+    setStages(s);
+    setAllLeads(l);
+  }, []);
 
-  function openNew() { setForm(EMPTY); setShowModal(true); }
+  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    window.addEventListener('flowmate:update', refresh);
+    return () => window.removeEventListener('flowmate:update', refresh);
+  }, [refresh]);
 
-  function save() {
+  async function save() {
     if (!form.name.trim()) return;
-    const contact = db.contacts.create({
+    const contact = await db.contacts.create({
       name: form.name.trim(),
       phone: form.phone.trim(),
       email: form.email.trim(),
     });
-    if (form.stage_id) {
-      db.leads.create({ contact_id: contact.id, stage_id: form.stage_id });
+    if (contact && form.stage_id) {
+      await db.leads.create({ contact_id: contact.id, stage_id: form.stage_id });
     }
-    refresh();
+    await refresh();
     setShowModal(false);
+    setForm(EMPTY);
   }
 
-  function remove(id) {
+  async function remove(id) {
     if (!confirm('Remover contato?')) return;
-    db.contacts.remove(id);
-    refresh();
+    await db.contacts.remove(id);
+    await refresh();
   }
 
   const filtered = contacts
-    .filter(c => canViewAll || c.created_by === session?.userId)
+    .filter(c => canViewAll || c.created_by === session?.user?.id)
     .filter(c =>
       c.name.toLowerCase().includes(search.toLowerCase()) ||
       (c.phone || '').includes(search) ||
       (c.email || '').toLowerCase().includes(search.toLowerCase())
     );
 
-  // Etapa do lead de cada contato para exibir na lista
-  const allLeads = db.leads.list();
   function contactStage(contactId) {
     const lead = allLeads.find(l => l.contact_id === contactId);
     return lead ? stages.find(s => s.id === lead.stage_id) : null;
@@ -74,7 +82,7 @@ export default function Contacts() {
             </button>
           )}
           {canCreate && (
-            <button onClick={openNew}
+            <button onClick={() => { setForm(EMPTY); setShowModal(true); }}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium hover:bg-blue-700">
               <Plus className="w-4 h-4" /> Novo contato
             </button>
@@ -119,7 +127,7 @@ export default function Contacts() {
                     )}
                   </div>
                 </button>
-                {canRemove && (canViewAll || c.created_by === session?.userId) && (
+                {canRemove && (canViewAll || c.created_by === session?.user?.id) && (
                   <button onClick={() => remove(c.id)} className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors">
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -132,18 +140,13 @@ export default function Contacts() {
 
       <p className="text-xs text-gray-400 mt-3">{contacts.length} contato{contacts.length !== 1 ? 's' : ''} no total</p>
 
-      {showImport && (
-        <ImportModal
-          onClose={() => setShowImport(false)}
-          onDone={() => refresh()}
-        />
-      )}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={refresh} />}
 
       {panel && (
         <ContactPanel
           contact={panel}
           onClose={() => setPanel(null)}
-          onSave={() => { refresh(); setPanel(null); }}
+          onSave={async () => { await refresh(); setPanel(null); }}
         />
       )}
 
@@ -182,12 +185,8 @@ export default function Contacts() {
                   <button key={s.id} type="button"
                     onClick={() => setForm(f => ({ ...f, stage_id: f.stage_id === s.id ? null : s.id }))}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-sm text-left transition-colors
-                      ${form.stage_id === s.id
-                        ? 'font-semibold'
-                        : 'border-gray-100 hover:bg-gray-50 text-gray-600'}`}
-                    style={form.stage_id === s.id
-                      ? { background: s.color + '18', color: s.color, borderColor: s.color + '55' }
-                      : {}}
+                      ${form.stage_id === s.id ? 'font-semibold' : 'border-gray-100 hover:bg-gray-50 text-gray-600'}`}
+                    style={form.stage_id === s.id ? { background: s.color + '18', color: s.color, borderColor: s.color + '55' } : {}}
                   >
                     <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
                     {s.name}
