@@ -29,9 +29,19 @@ export default function Settings() {
   const [waError, setWaError] = useState(null);
   const [waTab, setWaTab] = useState('permissions');
 
-  useEffect(() => {
-    supabase.from('whatsapp_instances').select('*').single().then(({ data }) => setWaInstance(data));
-  }, []);
+  async function fetchWaStatus() {
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    const res = await fetch('/api/whatsapp/status', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setWaInstance(data.status === 'connected' ? data : null);
+    }
+  }
+
+  useEffect(() => { fetchWaStatus(); }, []);
 
   async function connectWhatsApp() {
     setWaLoading(true);
@@ -46,7 +56,7 @@ export default function Settings() {
       });
       const data = await res.json();
       if (data.connected) {
-        await refreshWaStatus();
+        await fetchWaStatus();
       } else if (data.qr) {
         setWaQr(data.qr);
       } else {
@@ -59,9 +69,8 @@ export default function Settings() {
   }
 
   async function refreshWaStatus() {
-    const { data } = await supabase.from('whatsapp_instances').select('*').single();
-    setWaInstance(data);
-    if (data?.status === 'connected') setWaQr(null);
+    await fetchWaStatus();
+    setWaQr(null);
   }
 
   if (!isAdmin) {
