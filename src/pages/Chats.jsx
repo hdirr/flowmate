@@ -102,9 +102,10 @@ export default function Chats() {
 
     // Abre conversa pelo ?phone= na URL
     const phoneParam = searchParams.get('phone');
-    if (phoneParam && !selected) {
+    if (phoneParam) {
       const digits = phoneParam.replace(/\D/g, '');
-      const match = convs.find(c => c.phone === digits || c.phone.slice(-11) === digits.slice(-11));
+      // Compara pelo sufixo — JID pode ter "55" na frente que o contato não tem
+      const match = convs.find(c => c.phone.endsWith(digits) || digits.endsWith(c.phone) || c.phone.slice(-10) === digits.slice(-10));
       if (match) setSelected(match);
     }
   }, [instance, searchParams]);

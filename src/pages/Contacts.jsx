@@ -224,17 +224,18 @@ export default function Contacts() {
 
                 {/* Ações individuais */}
                 {!someSelected && (
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
                     {c.phone && (
                       <button
                         onClick={e => { e.stopPropagation(); navigate(`/chats?phone=${c.phone.replace(/\D/g, '')}`); }}
-                        title="Abrir chat"
-                        className="p-1.5 text-gray-300 hover:text-green-500 rounded-lg hover:bg-green-50 transition-colors">
-                        <MessageCircle className="w-4 h-4" />
+                        title="Abrir chat WhatsApp"
+                        className="flex items-center gap-1 text-xs text-green-600 bg-green-50 hover:bg-green-100 border border-green-200 px-2.5 py-1.5 rounded-lg transition-colors font-medium">
+                        <MessageCircle className="w-3.5 h-3.5" /> Chat
                       </button>
                     )}
                     {canDel && (
                       <button onClick={e => remove(c.id, e)}
+                        title="Excluir contato"
                         className="p-1.5 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors">
                         <Trash2 className="w-4 h-4" />
                       </button>
