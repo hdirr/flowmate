@@ -42,10 +42,31 @@ export default async function handler(req, res) {
   const { data: contacts } = await admin
     .from('crm_contacts').select('name, phone').eq('company_id', profile.company_id).limit(20);
 
+  // Verifica se a instância existe na tabela (o webhook depende disso)
+  const { data: instanceRow } = await admin
+    .from('whatsapp_instances').select('*').eq('instance_name', instanceName).single();
+
+  // Tenta a MESMA inserção que o webhook faz e captura o erro real
+  const testInsert = await admin.from('whatsapp_messages').insert({
+    company_id: profile.company_id,
+    instance_name: instanceName,
+    remote_jid: '000000000000@s.whatsapp.net',
+    from_me: false,
+    message_type: 'text',
+    content: 'TESTE_DEBUG',
+    timestamp: Math.floor(Date.now() / 1000),
+    contact_name: 'Teste Debug',
+    status: 'received',
+    message_id: 'DEBUG_' + Date.now(),
+  });
+
   return res.status(200).json({
     instanceName,
     counts: { total, received, sent },
     lastReceived,
     crmContacts: contacts,
+    instanceRowExists: !!instanceRow,
+    instanceRow,
+    testInsertError: testInsert.error ? testInsert.error.message : null,
   });
 }
