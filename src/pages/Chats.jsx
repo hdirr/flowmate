@@ -37,20 +37,27 @@ export default function Chats() {
   const canSend = auth.can('chats', 'send');
 
   const loadInstance = useCallback(async () => {
-    const { data } = await supabase
-      .from('whatsapp_instances')
-      .select('*')
-      .single();
-    setInstance(data || null);
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    const res = await fetch('/api/whatsapp/status', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setInstance(data.status === 'connected' ? data : null);
+    } else {
+      setInstance(null);
+    }
     setLoadingInstance(false);
   }, []);
 
   const loadMessages = useCallback(async () => {
     if (!instance) return;
+    const instName = instance.instance_name || instance.instanceName;
     const { data } = await supabase
       .from('whatsapp_messages')
       .select('*')
-      .eq('instance_name', instance.instance_name)
+      .eq('instance_name', instName)
       .order('timestamp', { ascending: true });
     const msgs = data || [];
     setMessages(msgs);
@@ -69,7 +76,7 @@ export default function Chats() {
         event: 'INSERT',
         schema: 'public',
         table: 'whatsapp_messages',
-        filter: `instance_name=eq.${instance.instance_name}`,
+        filter: `instance_name=eq.${instance.instance_name || instance.instanceName}`,
       }, payload => {
         setMessages(prev => {
           const updated = [...prev, payload.new];
@@ -93,7 +100,7 @@ export default function Chats() {
     await fetch('/api/whatsapp/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ to: selected.jid.replace('@s.whatsapp.net', ''), message: text.trim(), instanceName: instance.instance_name }),
+      body: JSON.stringify({ to: selected.jid.replace('@s.whatsapp.net', ''), message: text.trim(), instanceName: instance.instance_name || instance.instanceName }),
     });
     setText('');
     setSending(false);
