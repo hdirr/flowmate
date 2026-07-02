@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { name, email, password, role, company_id } = req.body;
+  const { name, email, password, role } = req.body;
 
   // Verifica se quem chamou é admin
   const authHeader = req.headers.authorization;
@@ -20,11 +20,23 @@ export default async function handler(req, res) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role')
+    .select('role, company_id')
     .eq('id', user.id)
     .single();
 
   if (profile?.role !== 'admin') return res.status(403).json({ error: 'Sem permissão' });
+
+  // Validações de entrada
+  if (!email || !password || !name) {
+    return res.status(400).json({ error: 'Nome, email e senha são obrigatórios' });
+  }
+  const ALLOWED_ROLES = ['admin', 'manager', 'seller'];
+  if (role && !ALLOWED_ROLES.includes(role)) {
+    return res.status(400).json({ error: 'Papel inválido' });
+  }
+
+  // company_id vem SEMPRE do admin autenticado, nunca do corpo da requisição
+  const company_id = profile.company_id;
 
   // Cria o usuário com service role (seguro, roda no servidor)
   const admin = createClient(
@@ -38,7 +50,7 @@ export default async function handler(req, res) {
   if (error) return res.status(400).json({ error: error.message });
 
   const { error: profileError } = await admin.from('user_profiles').insert({
-    id: authData.user.id, company_id, name, role, email,
+    id: authData.user.id, company_id, name, role: role || 'seller', email,
     is_primary: false, active: true,
   });
   if (profileError) return res.status(400).json({ error: profileError.message });

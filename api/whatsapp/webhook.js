@@ -8,6 +8,15 @@ const admin = () => createClient(
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
+  // Verificação por segredo compartilhado (ativa quando WEBHOOK_SECRET está configurado)
+  const expectedSecret = process.env.WEBHOOK_SECRET;
+  if (expectedSecret) {
+    const provided = req.query?.secret || req.headers['x-webhook-secret'];
+    if (provided !== expectedSecret) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  }
+
   try {
     const body = req.body;
     const event = body?.event;

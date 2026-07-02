@@ -28,7 +28,9 @@ export default async function handler(req, res) {
 
   const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
   const instanceName = `flowmate-${profile.company_id}`;
-  const webhookUrl = `${process.env.APP_URL}/api/whatsapp/webhook`;
+  const webhookUrl = process.env.WEBHOOK_SECRET
+    ? `${process.env.APP_URL}/api/whatsapp/webhook?secret=${process.env.WEBHOOK_SECRET}`
+    : `${process.env.APP_URL}/api/whatsapp/webhook`;
 
   // Tenta criar instância (ignora erro se já existe)
   await fetch(`${EVOLUTION_URL}/instance/create`, {

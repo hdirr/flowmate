@@ -24,11 +24,29 @@ export default async function handler(req, res) {
   if (profile?.role !== 'admin') return res.status(403).json({ error: 'Sem permissão' });
 
   const { userId, email, password, name, role } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId obrigatório' });
 
   const admin = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
+
+  // Garante que o usuário alvo pertence à MESMA empresa do admin (evita acesso cross-tenant)
+  const { data: target } = await admin
+    .from('user_profiles')
+    .select('company_id')
+    .eq('id', userId)
+    .single();
+
+  if (!target || target.company_id !== profile.company_id) {
+    return res.status(403).json({ error: 'Usuário não pertence à sua empresa' });
+  }
+
+  // Valida role contra lista permitida
+  const ALLOWED_ROLES = ['admin', 'manager', 'seller'];
+  if (role && !ALLOWED_ROLES.includes(role)) {
+    return res.status(400).json({ error: 'Papel inválido' });
+  }
 
   // Atualiza email/senha no Auth se fornecidos
   if (email || password) {
