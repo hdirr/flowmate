@@ -126,12 +126,11 @@ export const userStore = {
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
 
-    const res = await fetch('/sb-functions/create-user', {
+    const res = await fetch('/api/create-user', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
-        'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
       },
       body: JSON.stringify({
         name, email, password, role,
