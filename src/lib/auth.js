@@ -123,22 +123,24 @@ export const userStore = {
   },
 
   create: async ({ name, email, password, role }) => {
-    // Cria usuário no Supabase Auth via Admin API (precisa service_role em Edge Function)
-    // Por enquanto usa signUp
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-      email, password, email_confirm: true,
-    });
-    if (authError) return { error: authError.message };
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
 
-    const { error: profileError } = await supabase.from('user_profiles').insert({
-      id: authData.user.id,
-      company_id: auth.currentCompanyId(),
-      name, role, email,
-      is_primary: false,
-      active: true,
+    const res = await fetch('https://fwtnzxehfaqeklueojkp.supabase.co/functions/v1/create-user', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        name, email, password, role,
+        company_id: auth.currentCompanyId(),
+      }),
     });
-    if (profileError) return { error: profileError.message };
-    return { user: authData.user };
+
+    const data = await res.json();
+    if (!res.ok) return { error: data.error || 'Erro ao criar usuário' };
+    return { user: data.user };
   },
 
   update: async (id, data) => {
