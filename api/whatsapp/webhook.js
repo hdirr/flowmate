@@ -14,7 +14,6 @@ export default async function handler(req, res) {
     const instanceName = body?.instance;
     const db = admin();
 
-    // Atualiza status da instância
     if (event === 'connection.update') {
       const state = body?.data?.state;
       const phone = body?.data?.wuid?.replace('@s.whatsapp.net', '') || null;
@@ -24,31 +23,51 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // Mensagem recebida
     if (event === 'messages.upsert') {
-      const messages = body?.data?.messages || [];
+      // Evolution API v2 envia mensagem única em data, não em array
+      const msgData = body?.data;
+      if (!msgData) return res.status(200).json({ ok: true });
+
+      // Suporta tanto objeto único quanto array
+      const messages = Array.isArray(msgData) ? msgData : [msgData];
+
+      const { data: instance } = await db
+        .from('whatsapp_instances')
+        .select('company_id')
+        .eq('instance_name', instanceName)
+        .single();
+
+      if (!instance) return res.status(200).json({ ok: true });
+
       for (const msg of messages) {
-        if (!msg.key) continue;
-        const fromMe = msg.key.fromMe || false;
-        const remoteJid = msg.key.remoteJid || '';
-        if (remoteJid.includes('@g.us')) continue; // ignora grupos
+        const key = msg.key || {};
+        const remoteJid = key.remoteJid || msg.remoteJid || '';
+        if (!remoteJid || remoteJid.includes('@g.us')) continue;
+
+        const fromMe = key.fromMe ?? msg.fromMe ?? false;
 
         const content =
           msg.message?.conversation ||
           msg.message?.extendedTextMessage?.text ||
           msg.message?.imageMessage?.caption ||
+          msg.message?.videoMessage?.caption ||
+          msg.message?.documentMessage?.title ||
+          msg.text ||
           '[mídia]';
 
         const contactName = msg.pushName || remoteJid.replace('@s.whatsapp.net', '');
+        const timestamp = msg.messageTimestamp || Math.floor(Date.now() / 1000);
+        const messageId = key.id || msg.id;
 
-        // Busca company_id pela instância
-        const { data: instance } = await db
-          .from('whatsapp_instances')
-          .select('company_id')
-          .eq('instance_name', instanceName)
-          .single();
-
-        if (!instance) continue;
+        // Evita duplicatas pelo messageId
+        if (messageId) {
+          const { data: existing } = await db
+            .from('whatsapp_messages')
+            .select('id')
+            .eq('message_id', messageId)
+            .single();
+          if (existing) continue;
+        }
 
         await db.from('whatsapp_messages').insert({
           company_id: instance.company_id,
@@ -57,11 +76,13 @@ export default async function handler(req, res) {
           from_me: fromMe,
           message_type: 'text',
           content,
-          timestamp: msg.messageTimestamp,
+          timestamp,
           contact_name: contactName,
-          status: 'received',
+          status: fromMe ? 'sent' : 'received',
+          message_id: messageId,
         });
       }
+
       return res.status(200).json({ ok: true });
     }
 
