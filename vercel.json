@@ -3,6 +3,10 @@
     {
       "source": "/sb-proxy/:path*",
       "destination": "https://fwtnzxehfaqeklueojkp.supabase.co/:path*"
+    },
+    {
+      "source": "/sb-functions/:path*",
+      "destination": "https://fwtnzxehfaqeklueojkp.supabase.co/functions/v1/:path*"
     }
   ]
 }
