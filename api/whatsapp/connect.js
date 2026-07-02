@@ -30,7 +30,7 @@ export default async function handler(req, res) {
   const instanceName = `flowmate-${profile.company_id}`;
   const webhookUrl = `${process.env.APP_URL}/api/whatsapp/webhook`;
 
-  // Cria instância na Evolution API (ignora erro se já existe)
+  // Tenta criar instância (ignora erro se já existe)
   await fetch(`${EVOLUTION_URL}/instance/create`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
@@ -41,7 +41,33 @@ export default async function handler(req, res) {
     }),
   }).catch(() => {});
 
-  // Salva/atualiza instância no banco
+  // Garante webhook configurado na instância existente
+  await fetch(`${EVOLUTION_URL}/webhook/set/${instanceName}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
+    body: JSON.stringify({ url: webhookUrl, enabled: true, events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT'] }),
+  }).catch(() => {});
+
+  // Verifica estado de conexão atual
+  const stateRes = await fetch(`${EVOLUTION_URL}/instance/connectionState/${instanceName}`, {
+    headers: { 'apikey': EVOLUTION_KEY },
+  }).catch(() => null);
+
+  if (stateRes?.ok) {
+    const stateData = await stateRes.json();
+    const state = stateData?.instance?.state || stateData?.state;
+    if (state === 'open') {
+      // Já conectado — atualiza banco e retorna status
+      await admin.from('whatsapp_instances').upsert({
+        company_id: profile.company_id,
+        instance_name: instanceName,
+        status: 'connected',
+      }, { onConflict: 'company_id' });
+      return res.status(200).json({ connected: true, instanceName });
+    }
+  }
+
+  // Salva instância como desconectada
   await admin.from('whatsapp_instances').upsert({
     company_id: profile.company_id,
     instance_name: instanceName,
@@ -53,6 +79,11 @@ export default async function handler(req, res) {
     headers: { 'apikey': EVOLUTION_KEY },
   });
   const qrData = await qrRes.json();
+  const qr = qrData?.base64 || qrData?.code || qrData?.qrcode?.base64 || qrData?.qrcode?.code;
 
-  return res.status(200).json({ qr: qrData?.base64 || qrData?.code, instanceName });
+  if (!qr) {
+    return res.status(400).json({ error: `Sem QR na resposta da API: ${JSON.stringify(qrData)}` });
+  }
+
+  return res.status(200).json({ qr, instanceName });
 }

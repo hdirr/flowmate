@@ -45,7 +45,9 @@ export default function Settings() {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       const data = await res.json();
-      if (data.qr) {
+      if (data.connected) {
+        await refreshWaStatus();
+      } else if (data.qr) {
         setWaQr(data.qr);
       } else {
         setWaError(data.error || `Sem QR code na resposta: ${JSON.stringify(data)}`);
