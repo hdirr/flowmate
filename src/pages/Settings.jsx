@@ -153,7 +153,11 @@ export default function Settings() {
                 <div className="py-4">
                   <p className="text-sm text-gray-500 mb-4">Abra o WhatsApp no celular → Dispositivos conectados → Conectar dispositivo → Escaneie o QR code</p>
                   <div className="flex justify-center mb-4">
-                    <QRCode value={waQr} size={220} logoImage="/logo.png" logoWidth={40} />
+                    {waQr.startsWith('data:') ? (
+                      <img src={waQr} alt="QR Code WhatsApp" className="w-56 h-56 rounded-xl border border-gray-100" />
+                    ) : (
+                      <QRCode value={waQr} size={220} logoImage="/logo.png" logoWidth={40} />
+                    )}
                   </div>
                   <button onClick={refreshWaStatus} className="flex items-center gap-2 text-sm text-blue-500 hover:text-blue-600 mx-auto">
                     <RefreshCw className="w-3.5 h-3.5" /> Já escaneei — verificar conexão
