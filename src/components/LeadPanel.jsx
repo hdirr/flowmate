@@ -48,9 +48,15 @@ export default function LeadPanel({ lead, onClose, onUpdate, onRemove }) {
     onUpdate?.();
   }
 
-  async function remove() {
-    if (!confirm('Remover este lead?')) return;
+  async function removeLead() {
+    if (!confirm('Remover do pipeline? O contato continua no CRM.')) return;
     await db.leads.remove(lead.id);
+    onRemove?.();
+  }
+
+  async function removeContact() {
+    if (!confirm(`Excluir "${lead.contact?.name}" do CRM? Isso remove o contato e todos os leads vinculados.`)) return;
+    await db.contacts.remove(lead.contact_id);
     onRemove?.();
   }
 
@@ -267,9 +273,14 @@ export default function LeadPanel({ lead, onClose, onUpdate, onRemove }) {
         )}
 
         {/* Footer */}
-        <div className="px-5 py-4 border-t border-gray-100">
-          <button onClick={remove} className="w-full flex items-center justify-center gap-2 text-sm text-red-400 hover:text-red-600 py-2 rounded-lg hover:bg-red-50 transition-colors">
-            <Trash2 className="w-4 h-4" /> Remover lead
+        <div className="px-5 py-4 border-t border-gray-100 flex gap-2">
+          <button onClick={removeLead}
+            className="flex-1 flex items-center justify-center gap-1.5 text-sm text-orange-400 hover:text-orange-600 py-2 rounded-lg hover:bg-orange-50 transition-colors border border-orange-100">
+            <Trash2 className="w-4 h-4" /> Remover do pipeline
+          </button>
+          <button onClick={removeContact}
+            className="flex-1 flex items-center justify-center gap-1.5 text-sm text-red-400 hover:text-red-600 py-2 rounded-lg hover:bg-red-50 transition-colors border border-red-100">
+            <Trash2 className="w-4 h-4" /> Excluir do CRM
           </button>
         </div>
       </div>

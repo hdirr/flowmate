@@ -30,7 +30,7 @@ export default async function handler(req, res) {
 
   const instanceName = `flowmate-${profile.company_id}`;
 
-  // Busca lista de chats (contatos com conversa)
+  // Busca lista de chats
   const chatsRes = await fetch(`${EVOLUTION_URL}/chat/findChats/${instanceName}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
@@ -42,19 +42,22 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: `Erro ao buscar chats: ${err}` });
   }
 
-  const chats = await chatsRes.json();
-  const chatList = Array.isArray(chats) ? chats : (chats.chats || []);
+  const chatList = await chatsRes.json();
+  const chats = Array.isArray(chatList) ? chatList : [];
 
-  // Filtra apenas chats individuais (não grupos)
-  const individualChats = chatList.filter(c => {
-    const jid = c.id || c.remoteJid || '';
-    return jid.includes('@s.whatsapp.net') && !jid.includes('@g.us');
-  }).slice(0, 50); // limita 50 chats por sync
+  // Filtra apenas individuais (não grupos)
+  const individualChats = chats
+    .filter(c => {
+      const jid = c.remoteJid || c.id || '';
+      return jid.includes('@s.whatsapp.net');
+    })
+    .slice(0, 50);
 
   let imported = 0;
 
   for (const chat of individualChats) {
-    const jid = chat.id || chat.remoteJid;
+    const jid = chat.remoteJid || chat.id;
+    const contactName = chat.pushName || chat.name || jid.replace('@s.whatsapp.net', '');
 
     // Busca últimas mensagens do chat
     const msgsRes = await fetch(`${EVOLUTION_URL}/chat/findMessages/${instanceName}`, {
@@ -66,9 +69,9 @@ export default async function handler(req, res) {
     if (!msgsRes.ok) continue;
 
     const msgsData = await msgsRes.json();
-    const messages = Array.isArray(msgsData) ? msgsData : (msgsData.messages?.records || msgsData.records || []);
+    const records = msgsData?.messages?.records || msgsData?.records || [];
 
-    for (const msg of messages) {
+    for (const msg of records) {
       const key = msg.key || {};
       const remoteJid = key.remoteJid || jid;
       const fromMe = key.fromMe ?? false;
@@ -79,14 +82,13 @@ export default async function handler(req, res) {
         msg.message?.extendedTextMessage?.text ||
         msg.message?.imageMessage?.caption ||
         msg.message?.videoMessage?.caption ||
-        '[mídia]';
+        null;
 
-      if (content === '[mídia]' && !msg.message?.conversation && !msg.message?.extendedTextMessage) continue;
+      if (!content) continue;
 
-      const contactName = msg.pushName || chat.name || remoteJid.replace('@s.whatsapp.net', '');
       const timestamp = msg.messageTimestamp || Math.floor(Date.now() / 1000);
+      const name = msg.pushName || contactName;
 
-      // Upsert por message_id
       await admin.from('whatsapp_messages').upsert({
         company_id: profile.company_id,
         instance_name: instanceName,
@@ -95,7 +97,7 @@ export default async function handler(req, res) {
         message_type: 'text',
         content,
         timestamp,
-        contact_name: contactName,
+        contact_name: name,
         status: fromMe ? 'sent' : 'received',
         message_id: messageId,
       }, { onConflict: 'message_id', ignoreDuplicates: true });
