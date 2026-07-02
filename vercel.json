@@ -7,6 +7,10 @@
     {
       "source": "/sb-functions/:path*",
       "destination": "https://fwtnzxehfaqeklueojkp.supabase.co/functions/v1/:path*"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
   ]
 }

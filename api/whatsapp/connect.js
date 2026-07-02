@@ -30,8 +30,8 @@ export default async function handler(req, res) {
   const instanceName = `flowmate-${profile.company_id}`;
   const webhookUrl = `${process.env.APP_URL}/api/whatsapp/webhook`;
 
-  // Cria instância na Evolution API
-  const createRes = await fetch(`${EVOLUTION_URL}/instance/create`, {
+  // Cria instância na Evolution API (ignora erro se já existe)
+  await fetch(`${EVOLUTION_URL}/instance/create`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
     body: JSON.stringify({
@@ -39,15 +39,7 @@ export default async function handler(req, res) {
       integration: 'WHATSAPP-BAILEYS',
       webhook: { url: webhookUrl, enabled: true, events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT'] },
     }),
-  });
-
-  if (!createRes.ok) {
-    const err = await createRes.json();
-    // Se já existe, tudo bem — continua
-    if (!err.message?.includes('already')) {
-      return res.status(400).json({ error: err.message || 'Erro ao criar instância' });
-    }
-  }
+  }).catch(() => {});
 
   // Salva/atualiza instância no banco
   await admin.from('whatsapp_instances').upsert({
