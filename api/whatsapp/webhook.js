@@ -41,7 +41,7 @@ export default async function handler(req, res) {
 
       for (const msg of messages) {
         const key = msg.key || {};
-        const remoteJid = key.remoteJid || msg.remoteJid || '';
+        const remoteJid = key.remoteJidAlt || key.remoteJid || msg.remoteJid || '';
         if (!remoteJid || remoteJid.includes('@g.us')) continue;
 
         const fromMe = key.fromMe ?? msg.fromMe ?? false;
