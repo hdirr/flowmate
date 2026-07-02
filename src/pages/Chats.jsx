@@ -19,6 +19,22 @@ function normalizePhone(jid) {
   return jid.replace(/@.*/, '').replace(/\D/g, '');
 }
 
+// Garante número no formato internacional pro WhatsApp (adiciona 55 se faltar)
+function toWhatsAppNumber(digits) {
+  const d = digits.replace(/\D/g, '');
+  if (d.startsWith('55')) return d;
+  if (d.length === 10 || d.length === 11) return '55' + d;
+  return d;
+}
+
+// Dois telefones representam o mesmo contato? Compara pelos últimos 8 dígitos
+function samePhone(a, b) {
+  const da = a.replace(/\D/g, '');
+  const db = b.replace(/\D/g, '');
+  if (!da || !db) return false;
+  return da.endsWith(db) || db.endsWith(da) || da.slice(-8) === db.slice(-8);
+}
+
 function groupByContact(messages, contacts) {
   // Indexa contatos por número de telefone (normalizado)
   const contactByPhone = {};
@@ -58,6 +74,7 @@ function groupByContact(messages, contacts) {
 
 export default function Chats() {
   const [searchParams] = useSearchParams();
+  const autoSelectedRef = useRef(null);
   const [instance, setInstance] = useState(null);
   const [loadingInstance, setLoadingInstance] = useState(true);
   const [messages, setMessages] = useState([]);
@@ -99,19 +116,40 @@ export default function Chats() {
     setContacts(allContacts);
     const convs = groupByContact(allMsgs, allContacts);
     setConversations(convs);
-
-    // Abre conversa pelo ?phone= na URL
-    const phoneParam = searchParams.get('phone');
-    if (phoneParam) {
-      const digits = phoneParam.replace(/\D/g, '');
-      // Compara pelo sufixo — JID pode ter "55" na frente que o contato não tem
-      const match = convs.find(c => c.phone.endsWith(digits) || digits.endsWith(c.phone) || c.phone.slice(-10) === digits.slice(-10));
-      if (match) setSelected(match);
-    }
-  }, [instance, searchParams]);
+  }, [instance]);
 
   useEffect(() => { loadInstance(); }, [loadInstance]);
   useEffect(() => { loadMessages(); }, [loadMessages]);
+
+  // Abre a conversa automaticamente quando chega via ?phone= (Contatos/Pipeline)
+  useEffect(() => {
+    const phoneParam = searchParams.get('phone');
+    if (!phoneParam || !instance) return;
+    if (autoSelectedRef.current === phoneParam) return; // já tratou esse phone
+
+    // 1) Tenta achar conversa existente
+    const existing = conversations.find(c => samePhone(c.phone, phoneParam));
+    if (existing) {
+      autoSelectedRef.current = phoneParam;
+      setSelected(existing);
+      return;
+    }
+
+    // 2) Sem histórico ainda — cria conversa vazia a partir do contato do CRM
+    const contact = contacts.find(c => c.phone && samePhone(c.phone, phoneParam));
+    if (contact) {
+      autoSelectedRef.current = phoneParam;
+      const waNumber = toWhatsAppNumber(contact.phone);
+      setSelected({
+        jid: `${waNumber}@s.whatsapp.net`,
+        phone: waNumber,
+        name: contact.name,
+        contact,
+        messages: [],
+        last: null,
+      });
+    }
+  }, [searchParams, instance, conversations, contacts]);
 
   useEffect(() => {
     if (!instance) return;
@@ -158,7 +196,7 @@ export default function Chats() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({
-        to: selected.phone,
+        to: toWhatsAppNumber(selected.phone),
         message: text.trim(),
         instanceName: instance.instance_name || instance.instanceName,
       }),
@@ -168,7 +206,9 @@ export default function Chats() {
     await loadMessages();
   }
 
-  const currentMessages = selected ? messages.filter(m => m.remote_jid === selected.jid) : [];
+  const currentMessages = selected
+    ? messages.filter(m => m.remote_jid === selected.jid || samePhone(normalizePhone(m.remote_jid), selected.phone))
+    : [];
   const filteredConversations = conversations.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.phone.includes(search)
