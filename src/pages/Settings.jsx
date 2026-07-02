@@ -26,6 +26,7 @@ export default function Settings() {
   const [waInstance, setWaInstance] = useState(null);
   const [waQr, setWaQr] = useState(null);
   const [waLoading, setWaLoading] = useState(false);
+  const [waError, setWaError] = useState(null);
   const [waTab, setWaTab] = useState('permissions');
 
   useEffect(() => {
@@ -35,14 +36,23 @@ export default function Settings() {
   async function connectWhatsApp() {
     setWaLoading(true);
     setWaQr(null);
-    const session = await supabase.auth.getSession();
-    const token = session.data.session?.access_token;
-    const res = await fetch('/api/whatsapp/connect', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const data = await res.json();
-    if (data.qr) setWaQr(data.qr);
+    setWaError(null);
+    try {
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      const res = await fetch('/api/whatsapp/connect', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.qr) {
+        setWaQr(data.qr);
+      } else {
+        setWaError(data.error || `Sem QR code na resposta: ${JSON.stringify(data)}`);
+      }
+    } catch (e) {
+      setWaError(e.message);
+    }
     setWaLoading(false);
   }
 
@@ -143,6 +153,11 @@ export default function Settings() {
                 <div className="py-8">
                   <WifiOff className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                   <p className="text-gray-500 mb-4">Nenhum WhatsApp conectado</p>
+                  {waError && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl px-4 py-3 mb-4 text-left break-all">
+                      {waError}
+                    </div>
+                  )}
                   <button onClick={connectWhatsApp} disabled={waLoading}
                     className="bg-green-500 hover:bg-green-600 text-white px-6 py-2.5 rounded-xl text-sm font-medium disabled:opacity-50 flex items-center gap-2 mx-auto">
                     {waLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Smartphone className="w-4 h-4" />}
