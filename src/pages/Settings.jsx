@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { permissionsStore, ROLE_LABELS, DEFAULT_PERMISSIONS, auth } from '../lib/auth';
-import { RotateCcw, ShieldCheck } from 'lucide-react';
+import { RotateCcw, ShieldCheck, Smartphone, Wifi, WifiOff, Loader2, RefreshCw } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import QRCode from 'react-qrcode-logo';
 
 const MODULES = {
   pipeline:    { label: 'Pipeline',    actions: { view_all: 'Ver todos', view_own: 'Ver próprios', create: 'Criar', edit: 'Editar', remove: 'Remover' } },
@@ -19,6 +21,36 @@ export default function Settings() {
   const [perms, setPerms] = useState(() => permissionsStore.get());
   const [activeRole, setActiveRole] = useState('manager');
   const [saved, setSaved] = useState(false);
+
+  // WhatsApp
+  const [waInstance, setWaInstance] = useState(null);
+  const [waQr, setWaQr] = useState(null);
+  const [waLoading, setWaLoading] = useState(false);
+  const [waTab, setWaTab] = useState('permissions');
+
+  useEffect(() => {
+    supabase.from('whatsapp_instances').select('*').single().then(({ data }) => setWaInstance(data));
+  }, []);
+
+  async function connectWhatsApp() {
+    setWaLoading(true);
+    setWaQr(null);
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    const res = await fetch('/api/whatsapp/connect', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (data.qr) setWaQr(data.qr);
+    setWaLoading(false);
+  }
+
+  async function refreshWaStatus() {
+    const { data } = await supabase.from('whatsapp_instances').select('*').single();
+    setWaInstance(data);
+    if (data?.status === 'connected') setWaQr(null);
+  }
 
   if (!isAdmin) {
     return (
@@ -61,9 +93,80 @@ export default function Settings() {
     <div className="p-4 md:p-6 max-w-3xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold">Configurações</h1>
-        <p className="text-sm text-gray-400 mt-0.5">Configure as permissões de cada papel no sistema</p>
+        <p className="text-sm text-gray-400 mt-0.5">Configure permissões e integrações</p>
       </div>
 
+      {/* Tabs principais */}
+      <div className="flex gap-2 mb-6">
+        <button onClick={() => setWaTab('permissions')}
+          className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border
+            ${waTab === 'permissions' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+          Permissões
+        </button>
+        <button onClick={() => setWaTab('whatsapp')}
+          className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border flex items-center gap-2
+            ${waTab === 'whatsapp' ? 'bg-green-500 text-white border-green-500' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+          <Smartphone className="w-4 h-4" /> WhatsApp
+          {waInstance?.status === 'connected' && <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />}
+        </button>
+      </div>
+
+      {/* Tab WhatsApp */}
+      {waTab === 'whatsapp' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h3 className="font-bold text-gray-800">Conexão WhatsApp</h3>
+              <p className="text-sm text-gray-400 mt-0.5">Conecte o número da empresa para enviar e receber mensagens</p>
+            </div>
+            <button onClick={refreshWaStatus} className="text-gray-400 hover:text-gray-600">
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+
+          {waInstance?.status === 'connected' ? (
+            <div className="flex items-center gap-4 bg-green-50 border border-green-100 rounded-xl p-4">
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                <Wifi className="w-6 h-6 text-green-500" />
+              </div>
+              <div>
+                <p className="font-semibold text-green-700">WhatsApp conectado!</p>
+                <p className="text-sm text-green-600">{waInstance.phone || 'Número ativo'}</p>
+              </div>
+              <button onClick={connectWhatsApp} className="ml-auto text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-3 py-1.5">
+                Reconectar
+              </button>
+            </div>
+          ) : (
+            <div className="text-center">
+              {!waQr ? (
+                <div className="py-8">
+                  <WifiOff className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-500 mb-4">Nenhum WhatsApp conectado</p>
+                  <button onClick={connectWhatsApp} disabled={waLoading}
+                    className="bg-green-500 hover:bg-green-600 text-white px-6 py-2.5 rounded-xl text-sm font-medium disabled:opacity-50 flex items-center gap-2 mx-auto">
+                    {waLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Smartphone className="w-4 h-4" />}
+                    {waLoading ? 'Gerando QR code...' : 'Conectar WhatsApp'}
+                  </button>
+                </div>
+              ) : (
+                <div className="py-4">
+                  <p className="text-sm text-gray-500 mb-4">Abra o WhatsApp no celular → Dispositivos conectados → Conectar dispositivo → Escaneie o QR code</p>
+                  <div className="flex justify-center mb-4">
+                    <QRCode value={waQr} size={220} logoImage="/logo.png" logoWidth={40} />
+                  </div>
+                  <button onClick={refreshWaStatus} className="flex items-center gap-2 text-sm text-blue-500 hover:text-blue-600 mx-auto">
+                    <RefreshCw className="w-3.5 h-3.5" /> Já escaneei — verificar conexão
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab Permissões */}
+      {waTab === 'permissions' && <>
       {/* Role tabs */}
       <div className="flex gap-2 mb-6">
         {ROLES.map(r => {
@@ -129,6 +232,7 @@ export default function Settings() {
           <span className="text-sm text-green-600 font-medium animate-pulse">Salvo automaticamente ✓</span>
         )}
       </div>
+      </>}
     </div>
   );
 }
