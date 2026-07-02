@@ -38,7 +38,7 @@ export default function Users() {
   }
 
   function openEdit(user) {
-    setForm({ name: user.name, email: user.email || '', password: '', role: user.role });
+    setForm({ name: user.name, email: user.email || '', password: '', newPassword: '', role: user.role });
     setError('');
     setShowPass(false);
     setModal(user);
@@ -52,8 +52,13 @@ export default function Users() {
       const result = await userStore.create(form);
       if (result?.error) { setError(result.error); return; }
     } else {
-      const data = { name: form.name, role: form.role };
-      await userStore.update(modal.id, data);
+      const result = await userStore.update(modal.id, {
+        name: form.name,
+        role: form.role,
+        email: form.email || undefined,
+        password: form.newPassword.trim() || undefined,
+      });
+      if (result?.error) { setError(result.error); return; }
     }
 
     await refresh();
@@ -156,28 +161,41 @@ export default function Users() {
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
               </div>
 
-              {modal === 'new' && (
-                <>
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1">E-mail *</label>
-                    <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                      placeholder="email@empresa.com"
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              <div>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1">E-mail *</label>
+                <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                  placeholder="email@empresa.com"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+
+              {modal === 'new' ? (
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1">Senha *</label>
+                  <div className="relative">
+                    <input type={showPass ? 'text' : 'password'} value={form.password}
+                      onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                      placeholder="Senha de acesso"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                    <button type="button" onClick={() => setShowPass(p => !p)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                      {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
                   </div>
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1">Senha *</label>
-                    <div className="relative">
-                      <input type={showPass ? 'text' : 'password'} value={form.password}
-                        onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                        placeholder="Senha de acesso"
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                      <button type="button" onClick={() => setShowPass(p => !p)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                        {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1">Nova senha <span className="text-gray-300 font-normal">(deixe em branco para não alterar)</span></label>
+                  <div className="relative">
+                    <input type={showPass ? 'text' : 'password'} value={form.newPassword}
+                      onChange={e => setForm(f => ({ ...f, newPassword: e.target.value }))}
+                      placeholder="Nova senha..."
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                    <button type="button" onClick={() => setShowPass(p => !p)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                      {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
                   </div>
-                </>
+                </div>
               )}
 
               <div>

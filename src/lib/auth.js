@@ -145,8 +145,17 @@ export const userStore = {
     return { user: data.user };
   },
 
-  update: async (id, data) => {
-    await supabase.from('user_profiles').update(data).eq('id', id);
+  update: async (userId, { name, role, email, password }) => {
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    const res = await fetch('/api/update-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ userId, name, role, email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { error: data.error || 'Erro ao atualizar usuário' };
+    return { ok: true };
   },
 
   remove: async (id) => {

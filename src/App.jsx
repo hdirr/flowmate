@@ -23,7 +23,7 @@ export default function App() {
     auth.init().then(session => {
       if (!session) { setStatus('unauthenticated'); return; }
       const p = auth.profile();
-      if (!p) { setStatus('onboarding'); return; }
+      if (!p || !p.company_id) { setStatus('onboarding'); return; }
       setProfile(p);
       setStatus('ready');
     });
@@ -34,7 +34,7 @@ export default function App() {
       if (event === 'SIGNED_IN') {
         await auth.init();
         const p = auth.profile();
-        if (!p) { setStatus('onboarding'); return; }
+        if (!p || !p.company_id) { setStatus('onboarding'); return; }
         setProfile(p);
         setStatus('ready');
       }
