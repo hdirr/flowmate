@@ -32,6 +32,7 @@ export default function Chats() {
   const [selected, setSelected] = useState(null);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState('');
   const bottomRef = useRef(null);
   const canSend = auth.can('chats', 'send');
@@ -67,6 +68,13 @@ export default function Chats() {
   useEffect(() => { loadInstance(); }, [loadInstance]);
   useEffect(() => { loadMessages(); }, [loadMessages]);
 
+  // Polling a cada 10s para novas mensagens
+  useEffect(() => {
+    if (!instance) return;
+    const interval = setInterval(() => loadMessages(), 10000);
+    return () => clearInterval(interval);
+  }, [instance, loadMessages]);
+
   // Realtime — novas mensagens
   useEffect(() => {
     if (!instance) return;
@@ -91,6 +99,18 @@ export default function Chats() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [selected, messages]);
+
+  async function syncMessages() {
+    setSyncing(true);
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    await fetch('/api/whatsapp/sync', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    await loadMessages();
+    setSyncing(false);
+  }
 
   async function send() {
     if (!text.trim() || !selected || !instance) return;
@@ -144,9 +164,15 @@ export default function Chats() {
         <div className="p-3 border-b border-gray-100">
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-bold text-gray-800">Chats</h2>
-            <div className="flex items-center gap-1.5 text-xs text-green-500 font-medium">
-              <Wifi className="w-3.5 h-3.5" />
-              {instance.phone || 'Conectado'}
+            <div className="flex items-center gap-2">
+              <button onClick={syncMessages} disabled={syncing} title="Importar conversas"
+                className="text-gray-400 hover:text-blue-500 disabled:opacity-40">
+                <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin text-blue-400' : ''}`} />
+              </button>
+              <div className="flex items-center gap-1 text-xs text-green-500 font-medium">
+                <Wifi className="w-3.5 h-3.5" />
+                {instance.phone || 'Conectado'}
+              </div>
             </div>
           </div>
           <div className="relative">
