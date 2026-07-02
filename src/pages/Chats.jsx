@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { db } from '../lib/store';
 import { auth } from '../lib/auth';
 import { Send, Search, MessageCircle, Wifi, WifiOff, Loader2, RefreshCw } from 'lucide-react';
 
@@ -13,11 +15,41 @@ function timeLabel(ts) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 }
 
-function groupByContact(messages) {
+function normalizePhone(jid) {
+  return jid.replace(/@.*/, '').replace(/\D/g, '');
+}
+
+function groupByContact(messages, contacts) {
+  // Indexa contatos por número de telefone (normalizado)
+  const contactByPhone = {};
+  for (const c of contacts) {
+    if (c.phone) {
+      const digits = c.phone.replace(/\D/g, '');
+      contactByPhone[digits] = c;
+      // Também indexa sem o código do país (últimos 11 dígitos)
+      if (digits.length > 11) contactByPhone[digits.slice(-11)] = c;
+    }
+  }
+
   const map = {};
   for (const msg of messages) {
     const jid = msg.remote_jid;
-    if (!map[jid]) map[jid] = { jid, name: msg.contact_name || jid.replace('@s.whatsapp.net', ''), messages: [], last: msg };
+    const phone = normalizePhone(jid);
+
+    // Só mostra se o contato está no CRM
+    const contact = contactByPhone[phone] || contactByPhone[phone.slice(-11)] || contactByPhone[phone.slice(-10)];
+    if (!contact) continue;
+
+    if (!map[jid]) {
+      map[jid] = {
+        jid,
+        phone,
+        name: contact.name,
+        contact,
+        messages: [],
+        last: msg,
+      };
+    }
     map[jid].messages.push(msg);
     if (msg.timestamp > map[jid].last.timestamp) map[jid].last = msg;
   }
@@ -25,9 +57,11 @@ function groupByContact(messages) {
 }
 
 export default function Chats() {
+  const [searchParams] = useSearchParams();
   const [instance, setInstance] = useState(null);
   const [loadingInstance, setLoadingInstance] = useState(true);
   const [messages, setMessages] = useState([]);
+  const [contacts, setContacts] = useState([]);
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected] = useState(null);
   const [text, setText] = useState('');
@@ -55,27 +89,35 @@ export default function Chats() {
   const loadMessages = useCallback(async () => {
     if (!instance) return;
     const instName = instance.instance_name || instance.instanceName;
-    const { data } = await supabase
-      .from('whatsapp_messages')
-      .select('*')
-      .eq('instance_name', instName)
-      .order('timestamp', { ascending: true });
-    const msgs = data || [];
-    setMessages(msgs);
-    setConversations(groupByContact(msgs));
-  }, [instance]);
+    const [{ data: msgs }, crm] = await Promise.all([
+      supabase.from('whatsapp_messages').select('*').eq('instance_name', instName).order('timestamp', { ascending: true }),
+      db.contacts.list(),
+    ]);
+    const allMsgs = msgs || [];
+    const allContacts = crm || [];
+    setMessages(allMsgs);
+    setContacts(allContacts);
+    const convs = groupByContact(allMsgs, allContacts);
+    setConversations(convs);
+
+    // Abre conversa pelo ?phone= na URL
+    const phoneParam = searchParams.get('phone');
+    if (phoneParam && !selected) {
+      const digits = phoneParam.replace(/\D/g, '');
+      const match = convs.find(c => c.phone === digits || c.phone.slice(-11) === digits.slice(-11));
+      if (match) setSelected(match);
+    }
+  }, [instance, searchParams]);
 
   useEffect(() => { loadInstance(); }, [loadInstance]);
   useEffect(() => { loadMessages(); }, [loadMessages]);
 
-  // Polling a cada 10s para novas mensagens
   useEffect(() => {
     if (!instance) return;
     const interval = setInterval(() => loadMessages(), 10000);
     return () => clearInterval(interval);
   }, [instance, loadMessages]);
 
-  // Realtime — novas mensagens
   useEffect(() => {
     if (!instance) return;
     const channel = supabase
@@ -85,16 +127,10 @@ export default function Chats() {
         schema: 'public',
         table: 'whatsapp_messages',
         filter: `instance_name=eq.${instance.instance_name || instance.instanceName}`,
-      }, payload => {
-        setMessages(prev => {
-          const updated = [...prev, payload.new];
-          setConversations(groupByContact(updated));
-          return updated;
-        });
-      })
+      }, () => { loadMessages(); })
       .subscribe();
     return () => supabase.removeChannel(channel);
-  }, [instance]);
+  }, [instance, loadMessages]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -120,28 +156,25 @@ export default function Chats() {
     await fetch('/api/whatsapp/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ to: selected.jid.replace('@s.whatsapp.net', ''), message: text.trim(), instanceName: instance.instance_name || instance.instanceName }),
+      body: JSON.stringify({
+        to: selected.phone,
+        message: text.trim(),
+        instanceName: instance.instance_name || instance.instanceName,
+      }),
     });
     setText('');
     setSending(false);
     await loadMessages();
   }
 
-  const currentMessages = selected
-    ? messages.filter(m => m.remote_jid === selected.jid)
-    : [];
-
+  const currentMessages = selected ? messages.filter(m => m.remote_jid === selected.jid) : [];
   const filteredConversations = conversations.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.jid.includes(search)
+    c.phone.includes(search)
   );
 
   if (loadingInstance) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-      </div>
-    );
+    return <div className="flex-1 flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>;
   }
 
   if (!instance || instance.status !== 'connected') {
@@ -165,7 +198,7 @@ export default function Chats() {
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-bold text-gray-800">Chats</h2>
             <div className="flex items-center gap-2">
-              <button onClick={syncMessages} disabled={syncing} title="Importar conversas"
+              <button onClick={syncMessages} disabled={syncing} title="Importar conversas do WhatsApp"
                 className="text-gray-400 hover:text-blue-500 disabled:opacity-40">
                 <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin text-blue-400' : ''}`} />
               </button>
@@ -178,7 +211,7 @@ export default function Chats() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
             <input
-              placeholder="Buscar conversa..."
+              placeholder="Buscar por nome ou telefone..."
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="w-full bg-gray-50 border border-gray-100 rounded-lg pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -188,11 +221,13 @@ export default function Chats() {
 
         <div className="flex-1 overflow-y-auto">
           {filteredConversations.length === 0 ? (
-            <div className="text-center py-16 text-gray-400 text-sm">
+            <div className="text-center py-16 text-gray-400 text-sm px-4">
               <MessageCircle className="w-8 h-8 mx-auto mb-2 opacity-30" />
-              <p>Nenhuma conversa ainda</p>
-              <button onClick={loadMessages} className="mt-3 flex items-center gap-1 text-xs text-blue-500 mx-auto">
-                <RefreshCw className="w-3 h-3" /> Atualizar
+              <p className="font-medium">Nenhuma conversa ainda</p>
+              <p className="text-xs mt-1 text-gray-300">Só aparecem contatos cadastrados no CRM</p>
+              <button onClick={syncMessages} disabled={syncing} className="mt-3 flex items-center gap-1 text-xs text-blue-500 mx-auto disabled:opacity-40">
+                <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'Importando...' : 'Importar conversas'}
               </button>
             </div>
           ) : (
@@ -221,39 +256,30 @@ export default function Chats() {
       {/* Área de mensagens */}
       {selected ? (
         <div className="flex-1 flex flex-col bg-gray-50">
-          {/* Header */}
           <div className="bg-white border-b border-gray-100 px-4 py-3 flex items-center gap-3">
-            <button onClick={() => setSelected(null)} className="md:hidden text-gray-400 hover:text-gray-600">
-              ←
-            </button>
+            <button onClick={() => setSelected(null)} className="md:hidden text-gray-400 hover:text-gray-600">←</button>
             <div className="w-9 h-9 rounded-full bg-green-100 flex items-center justify-center">
               <span className="text-sm font-bold text-green-600">{selected.name[0].toUpperCase()}</span>
             </div>
             <div>
               <p className="font-semibold text-sm">{selected.name}</p>
-              <p className="text-xs text-gray-400">{selected.jid.replace('@s.whatsapp.net', '')}</p>
+              <p className="text-xs text-gray-400">{selected.phone}</p>
             </div>
           </div>
 
-          {/* Mensagens */}
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
             {currentMessages.map((msg, i) => (
               <div key={i} className={`flex ${msg.from_me ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[70%] px-3 py-2 rounded-2xl text-sm shadow-sm
-                  ${msg.from_me
-                    ? 'bg-green-500 text-white rounded-br-sm'
-                    : 'bg-white text-gray-800 rounded-bl-sm border border-gray-100'}`}>
+                  ${msg.from_me ? 'bg-green-500 text-white rounded-br-sm' : 'bg-white text-gray-800 rounded-bl-sm border border-gray-100'}`}>
                   <p>{msg.content}</p>
-                  <p className={`text-xs mt-1 ${msg.from_me ? 'text-green-100' : 'text-gray-400'}`}>
-                    {timeLabel(msg.timestamp)}
-                  </p>
+                  <p className={`text-xs mt-1 ${msg.from_me ? 'text-green-100' : 'text-gray-400'}`}>{timeLabel(msg.timestamp)}</p>
                 </div>
               </div>
             ))}
             <div ref={bottomRef} />
           </div>
 
-          {/* Input */}
           {canSend && (
             <div className="bg-white border-t border-gray-100 p-3 flex gap-2">
               <input

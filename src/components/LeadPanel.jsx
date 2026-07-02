@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Phone, Mail, MoveRight, Trash2, Save, Plus, ChevronDown, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { X, Phone, Mail, MoveRight, Trash2, Save, Plus, ChevronDown, Loader2, MessageCircle } from 'lucide-react';
 import { db } from '../lib/store';
 
 const FIELD_TYPES_CFG = [
@@ -10,6 +11,7 @@ const FIELD_TYPES_CFG = [
 ];
 
 export default function LeadPanel({ lead, onClose, onUpdate, onRemove }) {
+  const navigate = useNavigate();
   const [stages, setStages] = useState([]);
   const [customFields, setCustomFields] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -102,7 +104,17 @@ export default function LeadPanel({ lead, onClose, onUpdate, onRemove }) {
               )}
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X className="w-5 h-5" /></button>
+          <div className="flex items-center gap-2">
+            {lead.contact?.phone && (
+              <button
+                onClick={() => { onClose(); navigate(`/chats?phone=${lead.contact.phone.replace(/\D/g, '')}`); }}
+                title="Abrir chat WhatsApp"
+                className="flex items-center gap-1.5 text-xs text-green-600 bg-green-50 hover:bg-green-100 border border-green-200 px-2.5 py-1.5 rounded-lg transition-colors font-medium">
+                <MessageCircle className="w-3.5 h-3.5" /> Chat
+              </button>
+            )}
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X className="w-5 h-5" /></button>
+          </div>
         </div>
 
         {loading ? (

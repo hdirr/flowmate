@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '../lib/store';
 import { auth } from '../lib/auth';
-import { Plus, Search, User, Phone, Mail, Trash2, X, KanbanSquare, Upload, CheckSquare, Square, ChevronDown, Loader2 } from 'lucide-react';
+import { Plus, Search, User, Phone, Mail, Trash2, X, KanbanSquare, Upload, CheckSquare, Square, ChevronDown, Loader2, MessageCircle } from 'lucide-react';
 import ContactPanel from '../components/ContactPanel';
 import ImportModal from '../components/ImportModal';
 
@@ -14,6 +15,7 @@ export default function Contacts() {
   const canViewAll = auth.can('contacts', 'view_all');
   const canImport  = auth.can('import', 'access');
 
+  const navigate = useNavigate();
   const [stages, setStages]         = useState([]);
   const [contacts, setContacts]     = useState([]);
   const [allLeads, setAllLeads]     = useState([]);
@@ -220,12 +222,24 @@ export default function Contacts() {
                   </div>
                 </button>
 
-                {/* Lixo individual */}
-                {canDel && !someSelected && (
-                  <button onClick={e => remove(c.id, e)}
-                    className="p-1.5 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                {/* Ações individuais */}
+                {!someSelected && (
+                  <div className="flex items-center gap-1">
+                    {c.phone && (
+                      <button
+                        onClick={e => { e.stopPropagation(); navigate(`/chats?phone=${c.phone.replace(/\D/g, '')}`); }}
+                        title="Abrir chat"
+                        className="p-1.5 text-gray-300 hover:text-green-500 rounded-lg hover:bg-green-50 transition-colors">
+                        <MessageCircle className="w-4 h-4" />
+                      </button>
+                    )}
+                    {canDel && (
+                      <button onClick={e => remove(c.id, e)}
+                        className="p-1.5 text-gray-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             );
