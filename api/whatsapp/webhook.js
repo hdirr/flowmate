@@ -23,12 +23,24 @@ export default async function handler(req, res) {
     const instanceName = body?.instance;
     const db = admin();
 
+    // O nome da instância É flowmate-{company_id} — extrai o company_id direto,
+    // sem depender da tabela whatsapp_instances (que pode não ter a linha).
+    const companyId = instanceName?.startsWith('flowmate-')
+      ? instanceName.slice('flowmate-'.length)
+      : null;
+
     if (event === 'connection.update') {
       const state = body?.data?.state;
       const phone = body?.data?.wuid?.replace('@s.whatsapp.net', '') || null;
-      await db.from('whatsapp_instances')
-        .update({ status: state === 'open' ? 'connected' : 'disconnected', phone })
-        .eq('instance_name', instanceName);
+      if (companyId) {
+        await db.from('whatsapp_instances')
+          .upsert({
+            company_id: companyId,
+            instance_name: instanceName,
+            status: state === 'open' ? 'connected' : 'disconnected',
+            phone,
+          }, { onConflict: 'company_id' });
+      }
       return res.status(200).json({ ok: true });
     }
 
@@ -36,17 +48,10 @@ export default async function handler(req, res) {
       // Evolution API v2 envia mensagem única em data, não em array
       const msgData = body?.data;
       if (!msgData) return res.status(200).json({ ok: true });
+      if (!companyId) return res.status(200).json({ ok: true });
 
       // Suporta tanto objeto único quanto array
       const messages = Array.isArray(msgData) ? msgData : [msgData];
-
-      const { data: instance } = await db
-        .from('whatsapp_instances')
-        .select('company_id')
-        .eq('instance_name', instanceName)
-        .single();
-
-      if (!instance) return res.status(200).json({ ok: true });
 
       for (const msg of messages) {
         const key = msg.key || {};
@@ -79,7 +84,7 @@ export default async function handler(req, res) {
         }
 
         await db.from('whatsapp_messages').insert({
-          company_id: instance.company_id,
+          company_id: companyId,
           instance_name: instanceName,
           remote_jid: remoteJid,
           from_me: fromMe,
