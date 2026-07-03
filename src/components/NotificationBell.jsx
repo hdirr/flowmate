@@ -42,6 +42,7 @@ export default function NotificationBell() {
   const [lastSeen, setLastSeen] = useState(() => Number(localStorage.getItem(SEEN_KEY)) || 0);
   const panelRef = useRef(null);
   const mountedRef = useRef(false);
+  const pollMaxRef = useRef(0);
 
   const unread = items.filter(i => i.time > lastSeen).length;
 
@@ -81,64 +82,29 @@ export default function NotificationBell() {
 
   useEffect(() => { loadInitial(); }, [loadInitial]);
 
-  // Realtime: novas mensagens recebidas
+  // Polling — recarrega notificações periodicamente (pausa com aba oculta).
   useEffect(() => {
-    const channel = supabase
-      .channel('notif-messages')
-      .on('postgres_changes', {
-        event: 'INSERT', schema: 'public', table: 'whatsapp_messages',
-      }, payload => {
-        const m = payload.new;
-        if (m.from_me) return;
-        setItems(prev => {
-          if (prev.some(i => i.id === `msg-${m.id}`)) return prev;
-          return [{
-            id: `msg-${m.id}`,
-            type: 'message',
-            title: m.contact_name || m.remote_jid?.replace(/@.*/, '') || 'Contato',
-            subtitle: m.content,
-            time: toMs(m.timestamp),
-            phone: m.remote_jid?.replace(/@.*/, ''),
-          }, ...prev].slice(0, 30);
-        });
-        if (mountedRef.current) beep();
-      })
-      .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, []);
+    function poll() { if (!document.hidden) loadInitial(); }
+    const interval = setInterval(poll, 15000);
+    const onVisible = () => { if (!document.hidden) poll(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [loadInitial]);
 
-  // Realtime: novos leads
+  // Toca som quando chega item novo (compara com o máximo antes do último poll)
   useEffect(() => {
-    const channel = supabase
-      .channel('notif-leads')
-      .on('postgres_changes', {
-        event: 'INSERT', schema: 'public', table: 'crm_leads',
-      }, async payload => {
-        const l = payload.new;
-        let name = 'Novo lead';
-        if (l.contact_id) {
-          const { data: c } = await supabase.from('crm_contacts').select('name').eq('id', l.contact_id).single();
-          if (c?.name) name = c.name;
-        }
-        setItems(prev => {
-          if (prev.some(i => i.id === `lead-${l.id}`)) return prev;
-          return [{
-            id: `lead-${l.id}`,
-            type: 'lead',
-            title: name,
-            subtitle: 'Novo lead no pipeline',
-            time: toMs(l.created_at) || Date.now(),
-          }, ...prev].slice(0, 30);
-        });
-        if (mountedRef.current) beep();
-      })
-      .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, []);
+    if (!mountedRef.current) return;
+    const maxNow = items.length ? Math.max(...items.map(i => i.time)) : 0;
+    if (maxNow > pollMaxRef.current && pollMaxRef.current > 0) beep();
+    pollMaxRef.current = Math.max(pollMaxRef.current, maxNow);
+  }, [items]);
 
   // Evita beep na carga inicial
   useEffect(() => {
-    const t = setTimeout(() => { mountedRef.current = true; }, 1500);
+    const t = setTimeout(() => { mountedRef.current = true; }, 2000);
     return () => clearTimeout(t);
   }, []);
 

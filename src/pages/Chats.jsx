@@ -86,7 +86,13 @@ export default function Chats() {
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState('');
   const bottomRef = useRef(null);
+  const messagesRef = useRef([]);
+  const contactsRef = useRef([]);
   const canSend = auth.can('chats', 'send');
+
+  // Mantém refs sincronizados pro polling ler valores atuais sem recriar o intervalo
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { contactsRef.current = contacts; }, [contacts]);
 
   const loadInstance = useCallback(async () => {
     const session = await supabase.auth.getSession();
@@ -151,25 +157,41 @@ export default function Chats() {
     }
   }, [searchParams, instance, conversations, contacts]);
 
+  // Polling incremental — busca só mensagens novas (mais recentes que a última),
+  // pausa quando a aba não está visível, e faz refresh imediato ao voltar o foco.
   useEffect(() => {
     if (!instance) return;
-    const interval = setInterval(() => loadMessages(), 10000);
-    return () => clearInterval(interval);
-  }, [instance, loadMessages]);
+    const instName = instance.instance_name || instance.instanceName;
 
-  useEffect(() => {
-    if (!instance) return;
-    const channel = supabase
-      .channel('whatsapp_messages')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'whatsapp_messages',
-        filter: `instance_name=eq.${instance.instance_name || instance.instanceName}`,
-      }, () => { loadMessages(); })
-      .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, [instance, loadMessages]);
+    async function pollNew() {
+      if (document.hidden) return;
+      const lastTs = messagesRef.current.length
+        ? messagesRef.current[messagesRef.current.length - 1].timestamp
+        : 0;
+      const { data } = await supabase
+        .from('whatsapp_messages')
+        .select('*')
+        .eq('instance_name', instName)
+        .gt('timestamp', lastTs)
+        .order('timestamp', { ascending: true });
+      if (data && data.length) {
+        setMessages(prev => {
+          const seen = new Set(prev.map(m => m.id));
+          const merged = [...prev, ...data.filter(m => !seen.has(m.id))];
+          setConversations(groupByContact(merged, contactsRef.current));
+          return merged;
+        });
+      }
+    }
+
+    const interval = setInterval(pollNew, 5000);
+    const onVisible = () => { if (!document.hidden) pollNew(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [instance]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
