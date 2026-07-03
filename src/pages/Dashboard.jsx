@@ -194,20 +194,37 @@ export default function Dashboard() {
               Ver tudo <ArrowRight className="w-3 h-3" />
             </button>
           </div>
-          <div className="space-y-2.5">
-            {leadsByStage.map(s => (
-              <div key={s.id} className="flex items-center gap-3">
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
-                <span className="text-sm text-gray-600 flex-1 truncate">{s.name}</span>
-                <span className="text-sm font-semibold w-6 text-right">{s.count}</span>
-                <div className="w-24 h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full transition-all duration-500" style={{
-                    background: s.color,
-                    width: scopedLeads.length ? `${(s.count / scopedLeads.length) * 100}%` : '0%'
-                  }} />
+          <div className="space-y-4">
+            {(funnelId ? [{ id: funnelId, name: '' }] : (pipelines.length ? pipelines : [{ id: null, name: '' }])).map(p => {
+              const groupStages = leadsByStage.filter(s => (p.id ? s.pipeline_id === p.id : true));
+              if (groupStages.length === 0) return null;
+              const groupTotal = groupStages.reduce((sum, s) => sum + s.count, 0);
+              return (
+                <div key={p.id || 'all'}>
+                  {p.name && !funnelId && (
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">{p.name}</p>
+                      <span className="text-[11px] text-gray-400">{groupTotal} lead{groupTotal !== 1 ? 's' : ''}</span>
+                    </div>
+                  )}
+                  <div className="space-y-2.5">
+                    {groupStages.map(s => (
+                      <div key={s.id} className="flex items-center gap-3">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
+                        <span className="text-sm text-gray-600 flex-1 truncate">{s.name}</span>
+                        <span className="text-sm font-semibold w-6 text-right">{s.count}</span>
+                        <div className="w-24 h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all duration-500" style={{
+                            background: s.color,
+                            width: groupTotal ? `${(s.count / groupTotal) * 100}%` : '0%'
+                          }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {leadsByStage.length === 0 && <p className="text-xs text-gray-400 py-2">Nenhuma etapa ainda</p>}
           </div>
         </div>
