@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { db } from '../lib/store';
 import { auth } from '../lib/auth';
-import { Send, Search, MessageCircle, Wifi, WifiOff, Loader2, RefreshCw } from 'lucide-react';
+import { Send, Search, MessageCircle, Wifi, WifiOff, Loader2, RefreshCw, Paperclip, FileText, X } from 'lucide-react';
 
 function timeLabel(ts) {
   const d = ts > 1e10 ? new Date(ts) : new Date(ts * 1000);
@@ -76,8 +76,10 @@ export default function Chats() {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [search, setSearch] = useState('');
   const bottomRef = useRef(null);
+  const fileInputRef = useRef(null);
   const messagesRef = useRef([]);
   const contactsRef = useRef([]);
   const canSend = auth.can('chats', 'send');
@@ -220,6 +222,64 @@ export default function Chats() {
     await loadMessages();
   }
 
+  function mediaTypeOf(file) {
+    if (file.type.startsWith('image/')) return 'image';
+    if (file.type.startsWith('video/')) return 'video';
+    return 'document';
+  }
+
+  async function handleFileSelected(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // permite reenviar o mesmo arquivo depois
+    if (!file || !selected || !instance) return;
+
+    // Limite de segurança (Evolution/WhatsApp): 16MB
+    if (file.size > 16 * 1024 * 1024) {
+      alert('Arquivo muito grande. Máximo 16MB.');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const companyId = (instance.instance_name || instance.instanceName).replace('flowmate-', '');
+      const ext = file.name.includes('.') ? file.name.split('.').pop() : 'bin';
+      const path = `${companyId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+
+      const { error: upErr } = await supabase.storage
+        .from('whatsapp-media')
+        .upload(path, file, { contentType: file.type, upsert: false });
+      if (upErr) { alert('Erro ao subir arquivo: ' + upErr.message); setUploading(false); return; }
+
+      const { data: pub } = supabase.storage.from('whatsapp-media').getPublicUrl(path);
+      const mediaUrl = pub.publicUrl;
+
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      const res = await fetch('/api/whatsapp/send-media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          to: toWhatsAppNumber(selected.phone),
+          mediaUrl,
+          mediaType: mediaTypeOf(file),
+          mimeType: file.type,
+          fileName: file.name,
+          caption: text.trim() || undefined,
+          instanceName: instance.instance_name || instance.instanceName,
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        alert('Erro ao enviar mídia: ' + (d.error || 'tente novamente'));
+      } else {
+        setText('');
+      }
+      await loadMessages();
+    } finally {
+      setUploading(false);
+    }
+  }
+
   const currentMessages = selected
     ? messages.filter(m => m.remote_jid === selected.jid || samePhone(normalizePhone(m.remote_jid), selected.phone))
     : [];
@@ -323,29 +383,59 @@ export default function Chats() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
-            {currentMessages.map((msg, i) => (
+            {currentMessages.map((msg, i) => {
+              const hasCaption = msg.content && !['[imagem]', '[vídeo]', '[documento]', '[mídia]'].includes(msg.content);
+              return (
               <div key={i} className={`flex ${msg.from_me ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[70%] px-3 py-2 rounded-2xl text-sm shadow-sm
                   ${msg.from_me ? 'bg-green-500 text-white rounded-br-sm' : 'bg-white text-gray-800 rounded-bl-sm border border-gray-100'}`}>
-                  <p>{msg.content}</p>
+                  {msg.media_url && msg.message_type === 'image' && (
+                    <a href={msg.media_url} target="_blank" rel="noreferrer">
+                      <img src={msg.media_url} alt="imagem" className="rounded-lg max-w-full mb-1 max-h-64 object-cover" />
+                    </a>
+                  )}
+                  {msg.media_url && msg.message_type === 'video' && (
+                    <video src={msg.media_url} controls className="rounded-lg max-w-full mb-1 max-h-64" />
+                  )}
+                  {msg.media_url && msg.message_type === 'document' && (
+                    <a href={msg.media_url} target="_blank" rel="noreferrer"
+                      className={`flex items-center gap-2 mb-1 rounded-lg px-2 py-1.5 ${msg.from_me ? 'bg-green-600/40' : 'bg-gray-100'}`}>
+                      <FileText className="w-4 h-4 shrink-0" />
+                      <span className="truncate underline">{msg.file_name || 'Documento'}</span>
+                    </a>
+                  )}
+                  {hasCaption && <p>{msg.content}</p>}
                   <p className={`text-xs mt-1 ${msg.from_me ? 'text-green-100' : 'text-gray-400'}`}>{timeLabel(msg.timestamp)}</p>
                 </div>
               </div>
-            ))}
+            );})}
             <div ref={bottomRef} />
           </div>
 
           {canSend && (
-            <div className="bg-white border-t border-gray-100 p-3 flex gap-2">
+            <div className="bg-white border-t border-gray-100 p-3 flex gap-2 items-center">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*,application/pdf"
+                onChange={handleFileSelected}
+                className="hidden"
+              />
+              <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+                title="Anexar foto, vídeo ou PDF"
+                className="text-gray-400 hover:text-green-500 disabled:opacity-40 shrink-0 p-2">
+                {uploading ? <Loader2 className="w-5 h-5 animate-spin text-green-500" /> : <Paperclip className="w-5 h-5" />}
+              </button>
               <input
                 value={text}
                 onChange={e => setText(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
-                placeholder="Digite uma mensagem..."
-                className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                placeholder={uploading ? 'Enviando anexo...' : 'Digite uma mensagem...'}
+                disabled={uploading}
+                className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 disabled:opacity-60"
               />
-              <button onClick={send} disabled={!text.trim() || sending}
-                className="bg-green-500 hover:bg-green-600 text-white rounded-xl px-4 py-2 disabled:opacity-50 transition-colors">
+              <button onClick={send} disabled={!text.trim() || sending || uploading}
+                className="bg-green-500 hover:bg-green-600 text-white rounded-xl px-4 py-2 disabled:opacity-50 transition-colors shrink-0">
                 {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </button>
             </div>

@@ -6,7 +6,7 @@ import {
   Plus, Trash2, Bot, Zap, X, ToggleLeft, ToggleRight,
   ArrowDown, KanbanSquare, MessageCircle, StickyNote, Tag,
   UserPlus, Mail, Bell, Clock, Webhook, Star, UserMinus, AlertCircle, Play,
-  ChevronUp, ChevronDown, PenLine
+  ChevronUp, ChevronDown, PenLine, Paperclip, Loader2, FileText
 } from 'lucide-react';
 
 const TRIGGERS = [
@@ -46,8 +46,29 @@ function StepConfig({ action, onChange, stages }) {
   const [fields, setFields] = useState([]);
   const [showCreate, setShowCreate] = useState(false);
   const [newField, setNewField] = useState({ name: '', type: 'text', options: '' });
+  const [uploadingMedia, setUploadingMedia] = useState(false);
 
   useEffect(() => { db.customFields.list().then(setFields); }, []);
+
+  async function uploadMedia(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 16 * 1024 * 1024) { alert('Arquivo muito grande. Máximo 16MB.'); return; }
+    setUploadingMedia(true);
+    try {
+      const companyId = auth.currentCompanyId();
+      const ext = file.name.includes('.') ? file.name.split('.').pop() : 'bin';
+      const path = `${companyId}/bot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error } = await supabase.storage.from('whatsapp-media').upload(path, file, { contentType: file.type });
+      if (error) { alert('Erro ao subir arquivo: ' + error.message); return; }
+      const { data: pub } = supabase.storage.from('whatsapp-media').getPublicUrl(path);
+      const mediaType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'document';
+      onChange({ ...action, mediaUrl: pub.publicUrl, mediaType, mimeType: file.type, fileName: file.name });
+    } finally {
+      setUploadingMedia(false);
+    }
+  }
 
   async function createField() {
     if (!newField.name.trim()) return;
@@ -82,6 +103,27 @@ function StepConfig({ action, onChange, stages }) {
                 rows={3} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none" />
               <p className="text-xs text-gray-300 mt-0.5">Use <span className="font-mono bg-gray-100 px-1 rounded text-gray-400">{'{nome}'}</span> para personalizar</p>
             </>
+          )}
+        </div>
+      )}
+
+      {/* Anexo opcional para WhatsApp */}
+      {action.type === 'send_whatsapp' && (
+        <div>
+          <label className="text-xs text-gray-400 mb-1 block">Anexo (opcional)</label>
+          {action.mediaUrl ? (
+            <div className="flex items-center gap-2 bg-green-50 border border-green-100 rounded-lg px-3 py-2">
+              <FileText className="w-4 h-4 text-green-600 shrink-0" />
+              <span className="text-sm text-green-700 truncate flex-1">{action.fileName || 'Anexo'}</span>
+              <button type="button" onClick={() => onChange({ ...action, mediaUrl: undefined, mediaType: undefined, mimeType: undefined, fileName: undefined })}
+                className="text-gray-400 hover:text-red-500 shrink-0"><X className="w-4 h-4" /></button>
+            </div>
+          ) : (
+            <label className={`flex items-center gap-2 border border-dashed border-gray-300 rounded-lg px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 ${uploadingMedia ? 'opacity-60' : ''}`}>
+              {uploadingMedia ? <Loader2 className="w-4 h-4 animate-spin text-green-500" /> : <Paperclip className="w-4 h-4 text-gray-400" />}
+              <span className="text-gray-500">{uploadingMedia ? 'Enviando...' : 'Anexar foto, vídeo ou PDF'}</span>
+              <input type="file" accept="image/*,video/*,application/pdf" onChange={uploadMedia} disabled={uploadingMedia} className="hidden" />
+            </label>
           )}
         </div>
       )}
@@ -328,16 +370,24 @@ export default function Automations() {
           const tags = [...(lead.contact?.tags || []).filter(t => t !== action.tag), action.tag];
           await db.contacts.update(lead.contact_id, { tags });
         }
-        if (action.type === 'send_whatsapp' && action.body && token) {
+        if (action.type === 'send_whatsapp' && (action.body || action.mediaUrl) && token) {
           let phone = (lead.contact?.phone || '').replace(/\D/g, '');
           if (phone) {
             if (!phone.startsWith('55') && (phone.length === 10 || phone.length === 11)) phone = '55' + phone;
-            const msg = action.body.replace(/\{nome\}/gi, lead.contact?.name || '');
-            await fetch('/api/whatsapp/send', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-              body: JSON.stringify({ to: phone, message: msg, instanceName }),
-            }).catch(() => {});
+            const msg = (action.body || '').replace(/\{nome\}/gi, lead.contact?.name || '');
+            if (action.mediaUrl) {
+              await fetch('/api/whatsapp/send-media', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ to: phone, mediaUrl: action.mediaUrl, mediaType: action.mediaType, mimeType: action.mimeType, fileName: action.fileName, caption: msg || undefined, instanceName }),
+              }).catch(() => {});
+            } else {
+              await fetch('/api/whatsapp/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ to: phone, message: msg, instanceName }),
+              }).catch(() => {});
+            }
           }
         }
         if (action.type === 'webhook' && action.body) {
