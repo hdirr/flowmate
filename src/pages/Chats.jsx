@@ -36,38 +36,30 @@ function samePhone(a, b) {
 }
 
 function groupByContact(messages, contacts) {
-  // Indexa contatos por número de telefone (normalizado)
-  const contactByPhone = {};
-  for (const c of contacts) {
-    if (c.phone) {
-      const digits = c.phone.replace(/\D/g, '');
-      contactByPhone[digits] = c;
-      // Também indexa sem o código do país (últimos 11 dígitos)
-      if (digits.length > 11) contactByPhone[digits.slice(-11)] = c;
-    }
-  }
-
+  // Agrupa por CONTATO (não por JID), usando casamento por sufixo de telefone.
+  // Isso une mensagens enviadas (com 9) e recebidas (sem 9) do mesmo contato,
+  // e só mostra contatos cadastrados no CRM.
+  const withPhone = contacts.filter(c => c.phone);
   const map = {};
-  for (const msg of messages) {
-    const jid = msg.remote_jid;
-    const phone = normalizePhone(jid);
 
-    // Só mostra se o contato está no CRM
-    const contact = contactByPhone[phone] || contactByPhone[phone.slice(-11)] || contactByPhone[phone.slice(-10)];
+  for (const msg of messages) {
+    const phone = normalizePhone(msg.remote_jid);
+    const contact = withPhone.find(c => samePhone(c.phone, phone));
     if (!contact) continue;
 
-    if (!map[jid]) {
-      map[jid] = {
-        jid,
-        phone,
+    const key = contact.id;
+    if (!map[key]) {
+      map[key] = {
+        jid: msg.remote_jid,
+        phone: toWhatsAppNumber(contact.phone),
         name: contact.name,
         contact,
         messages: [],
         last: msg,
       };
     }
-    map[jid].messages.push(msg);
-    if (msg.timestamp > map[jid].last.timestamp) map[jid].last = msg;
+    map[key].messages.push(msg);
+    if (msg.timestamp > map[key].last.timestamp) map[key].last = msg;
   }
   return Object.values(map).sort((a, b) => b.last.timestamp - a.last.timestamp);
 }
