@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { db } from '../lib/store';
+import { supabase } from '../lib/supabase';
 import { auth, userStore, ROLE_LABELS } from '../lib/auth';
 import {
   Plus, Trash2, Bot, Zap, X, ToggleLeft, ToggleRight,
@@ -314,6 +315,11 @@ export default function Automations() {
     const stageLeads = wf.triggerStageId ? leads.filter(l => l.stage_id === wf.triggerStageId) : leads;
     if (stageLeads.length === 0) { setRunResult({ wfId: wf.id, error: 'Nenhum lead encontrado na etapa configurada.' }); return; }
 
+    // Token e instância para envio real de WhatsApp
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const instanceName = `flowmate-${auth.currentCompanyId()}`;
+
     for (const lead of stageLeads) {
       for (const action of wf.actions) {
         if (action.type === 'move_stage' && action.stageId) await db.leads.update(lead.id, { stage_id: action.stageId });
@@ -322,9 +328,17 @@ export default function Automations() {
           const tags = [...(lead.contact?.tags || []).filter(t => t !== action.tag), action.tag];
           await db.contacts.update(lead.contact_id, { tags });
         }
-        if (action.type === 'send_whatsapp' && action.body) {
-          const phone = (lead.contact?.phone || '').replace(/\D/g, '');
-          if (phone) window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(action.body.replace(/\{nome\}/gi, lead.contact?.name || ''))}`, '_blank');
+        if (action.type === 'send_whatsapp' && action.body && token) {
+          let phone = (lead.contact?.phone || '').replace(/\D/g, '');
+          if (phone) {
+            if (!phone.startsWith('55') && (phone.length === 10 || phone.length === 11)) phone = '55' + phone;
+            const msg = action.body.replace(/\{nome\}/gi, lead.contact?.name || '');
+            await fetch('/api/whatsapp/send', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({ to: phone, message: msg, instanceName }),
+            }).catch(() => {});
+          }
         }
         if (action.type === 'webhook' && action.body) {
           fetch(action.body, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lead_id: lead.id }) }).catch(() => {});

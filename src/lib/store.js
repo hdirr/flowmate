@@ -48,10 +48,21 @@ async function runAutomations(event, payload) {
 
       if (action.type === 'send_whatsapp' && action.body && payload.contact_id) {
         const { data: contact } = await supabase.from('crm_contacts').select('phone, name').eq('id', payload.contact_id).single();
-        const phone = (contact?.phone || '').replace(/\D/g, '');
+        let phone = (contact?.phone || '').replace(/\D/g, '');
         if (phone) {
+          // Formato internacional (adiciona 55 se faltar)
+          if (!phone.startsWith('55') && (phone.length === 10 || phone.length === 11)) phone = '55' + phone;
           const msg = action.body.replace(/\{nome\}/gi, contact?.name || '');
-          window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+          // Envia de verdade pela Evolution API (mesmo caminho do Chat)
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          if (token) {
+            await fetch('/api/whatsapp/send', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({ to: phone, message: msg, instanceName: `flowmate-${cid()}` }),
+            }).catch(() => {});
+          }
         }
       }
 
