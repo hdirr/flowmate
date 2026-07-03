@@ -453,7 +453,18 @@ export default function Pipeline() {
         </div>
       )}
 
-      {funnelModal && <FunnelModal />}
+      {funnelModal && (
+        <FunnelModal
+          mode={funnelModal === 'new' ? 'new' : 'edit'}
+          form={funnelForm}
+          setForm={setFunnelForm}
+          companyUsers={companyUsers}
+          saving={savingFunnel}
+          onSave={saveFunnel}
+          onRemove={() => removeFunnel(funnelModal)}
+          onClose={() => setFunnelModal(null)}
+        />
+      )}
     </div>
   );
 }
