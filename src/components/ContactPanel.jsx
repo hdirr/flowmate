@@ -23,6 +23,7 @@ export default function ContactPanel({ contact, onClose, onSave }) {
     email: contact.email || '',
   });
   const [stageId, setStageId] = useState(null);
+  const [pipelines, setPipelines] = useState([]);
   const [fieldValues, setFieldValues] = useState(contact.fields || {});
 
   const [showNewField, setShowNewField] = useState(false);
@@ -30,12 +31,14 @@ export default function ContactPanel({ contact, onClose, onSave }) {
   const [creatingField, setCreatingField] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [s, leads, cf] = await Promise.all([
+    const [s, leads, cf, p] = await Promise.all([
       db.stages.list(),
       db.leads.list(),
       db.customFields.list(),
+      db.pipelines.list(),
     ]);
     setStages(s);
+    setPipelines(p);
     setFields(cf);
     const lead = leads.find(l => l.contact_id === contact.id);
     setExistingLead(lead || null);
@@ -250,17 +253,28 @@ export default function ContactPanel({ contact, onClose, onSave }) {
                   </button>
                 )}
               </div>
-              <div className="space-y-1.5">
-                {stages.map(s => (
-                  <button key={s.id} type="button" onClick={() => setStageId(s.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-sm text-left transition-colors
-                      ${stageId === s.id ? 'font-semibold' : 'border-gray-100 hover:bg-gray-50 text-gray-600'}`}
-                    style={stageId === s.id ? { background: s.color + '18', color: s.color, borderColor: s.color + '55' } : {}}>
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
-                    {s.name}
-                    {stageId === s.id && <span className="ml-auto text-xs">✓</span>}
-                  </button>
-                ))}
+              <div className="space-y-3">
+                {(pipelines.length ? pipelines : [{ id: null, name: '' }]).map(p => {
+                  const funnelStages = stages.filter(s => (p.id ? s.pipeline_id === p.id : true));
+                  if (funnelStages.length === 0) return null;
+                  return (
+                    <div key={p.id || 'all'}>
+                      {p.name && <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{p.name}</p>}
+                      <div className="space-y-1.5">
+                        {funnelStages.map(s => (
+                          <button key={s.id} type="button" onClick={() => setStageId(s.id)}
+                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-sm text-left transition-colors
+                              ${stageId === s.id ? 'font-semibold' : 'border-gray-100 hover:bg-gray-50 text-gray-600'}`}
+                            style={stageId === s.id ? { background: s.color + '18', color: s.color, borderColor: s.color + '55' } : {}}>
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
+                            {s.name}
+                            {stageId === s.id && <span className="ml-auto text-xs">✓</span>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </section>
           </div>

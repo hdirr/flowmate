@@ -16,7 +16,9 @@ export default function Dashboard() {
   const [leads, setLeads] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [workflows, setWorkflows] = useState([]);
-  const [stages, setStages] = useState([]);
+  const [allStages, setAllStages] = useState([]);
+  const [pipelines, setPipelines] = useState([]);
+  const [funnelId, setFunnelId] = useState(null); // null = todos os funis
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -25,29 +27,45 @@ export default function Dashboard() {
       db.contacts.list(),
       db.workflows.list(),
       db.stages.list(),
-    ]).then(([l, c, w, s]) => {
+      db.pipelines.list(),
+    ]).then(([l, c, w, s, p]) => {
       setLeads(l);
       setContacts(c);
       setWorkflows(w);
-      setStages(s);
+      setAllStages(s);
+      setPipelines(p);
       setLoading(false);
     });
   }, []);
 
   const activeWorkflows = workflows.filter(w => w.enabled).length;
 
+  // Escopo pelo funil selecionado
+  const stages = useMemo(() => funnelId ? allStages.filter(s => s.pipeline_id === funnelId) : allStages, [allStages, funnelId]);
+  const scopedLeads = useMemo(() => funnelId ? leads.filter(l => l.pipeline_id === funnelId) : leads, [leads, funnelId]);
+
+  // Etapas "de conversão" = última etapa (maior position) de cada funil no escopo
+  const wonStageIds = useMemo(() => {
+    const byFunnel = {};
+    for (const s of stages) {
+      const k = s.pipeline_id || 'x';
+      if (!byFunnel[k] || (s.position || 0) > (byFunnel[k].position || 0)) byFunnel[k] = s;
+    }
+    return new Set(Object.values(byFunnel).map(s => s.id));
+  }, [stages]);
+
   const leadsByStage = useMemo(() => stages.map(s => ({
     ...s,
-    count: leads.filter(l => l.stage_id === s.id).length,
-  })), [stages, leads]);
+    count: scopedLeads.filter(l => l.stage_id === s.id).length,
+  })), [stages, scopedLeads]);
 
   // Novos leads: últimos 7 dias vs 7 dias anteriores (para tendência)
   const now = Date.now();
   const { newLeads7d, trendPct } = useMemo(() => {
     const cut7 = now - 7 * DAY;
     const cut14 = now - 14 * DAY;
-    const last7 = leads.filter(l => l.created_at && new Date(l.created_at).getTime() >= cut7).length;
-    const prev7 = leads.filter(l => {
+    const last7 = scopedLeads.filter(l => l.created_at && new Date(l.created_at).getTime() >= cut7).length;
+    const prev7 = scopedLeads.filter(l => {
       if (!l.created_at) return false;
       const t = new Date(l.created_at).getTime();
       return t >= cut14 && t < cut7;
@@ -56,15 +74,14 @@ export default function Dashboard() {
     if (prev7 === 0) pct = last7 > 0 ? 100 : 0;
     else pct = Math.round(((last7 - prev7) / prev7) * 100);
     return { newLeads7d: last7, trendPct: pct };
-  }, [leads, now]);
+  }, [scopedLeads, now]);
 
-  // Taxa de conversão: leads na última etapa / total
+  // Taxa de conversão: leads nas etapas finais / total (por funil)
   const conversionRate = useMemo(() => {
-    if (!leads.length || !stages.length) return 0;
-    const lastStage = stages[stages.length - 1];
-    const converted = leads.filter(l => l.stage_id === lastStage.id).length;
-    return Math.round((converted / leads.length) * 100);
-  }, [leads, stages]);
+    if (!scopedLeads.length || wonStageIds.size === 0) return 0;
+    const converted = scopedLeads.filter(l => wonStageIds.has(l.stage_id)).length;
+    return Math.round((converted / scopedLeads.length) * 100);
+  }, [scopedLeads, wonStageIds]);
 
   // Leads por dia — últimos 7 dias
   const leadsByDay = useMemo(() => {
@@ -72,7 +89,7 @@ export default function Dashboard() {
     for (let i = 6; i >= 0; i--) {
       const start = startOfDay(now - i * DAY);
       const end = start + DAY;
-      const count = leads.filter(l => {
+      const count = scopedLeads.filter(l => {
         if (!l.created_at) return false;
         const t = new Date(l.created_at).getTime();
         return t >= start && t < end;
@@ -84,26 +101,44 @@ export default function Dashboard() {
       });
     }
     return days;
-  }, [leads, now]);
+  }, [scopedLeads, now]);
 
   const maxDayCount = Math.max(1, ...leadsByDay.map(d => d.count));
   const recentContacts = contacts.slice(0, 5);
 
   const cards = [
-    { label: 'Leads ativos', value: leads.length,      icon: KanbanSquare, color: 'bg-blue-500',    path: '/pipeline' },
+    { label: funnelId ? 'Leads no funil' : 'Leads ativos', value: scopedLeads.length, icon: KanbanSquare, color: 'bg-blue-500',    path: '/pipeline' },
     { label: 'Contatos',     value: contacts.length,   icon: Users,        color: 'bg-violet-500',  path: '/contatos' },
     { label: 'Novos (7 dias)', value: newLeads7d,      icon: Sparkles,     color: 'bg-emerald-500', path: '/pipeline', trend: trendPct },
-    { label: 'Conversão',    value: `${conversionRate}%`, icon: Target,    color: 'bg-amber-500',   path: '/pipeline', hint: stages.length ? `→ ${stages[stages.length - 1].name}` : null },
+    { label: 'Conversão',    value: `${conversionRate}%`, icon: Target,    color: 'bg-amber-500',   path: '/pipeline', hint: 'etapas finais' },
   ];
 
   return (
     <div className="p-4 md:p-6 max-w-5xl">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">Início</h1>
         <span className="text-xs text-gray-400">
           {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
         </span>
       </div>
+
+      {/* Seletor de funil */}
+      {pipelines.length > 1 && (
+        <div className="flex items-center gap-2 mb-5 overflow-x-auto pb-1">
+          <button onClick={() => setFunnelId(null)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors border
+              ${funnelId === null ? 'bg-gray-900 text-white border-gray-900' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            Todos os funis
+          </button>
+          {pipelines.map(p => (
+            <button key={p.id} onClick={() => setFunnelId(p.id)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors border
+                ${funnelId === p.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+              {p.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -168,7 +203,7 @@ export default function Dashboard() {
                 <div className="w-24 h-2 bg-gray-100 rounded-full overflow-hidden">
                   <div className="h-full rounded-full transition-all duration-500" style={{
                     background: s.color,
-                    width: leads.length ? `${(s.count / leads.length) * 100}%` : '0%'
+                    width: scopedLeads.length ? `${(s.count / scopedLeads.length) * 100}%` : '0%'
                   }} />
                 </div>
               </div>
