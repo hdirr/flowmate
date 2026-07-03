@@ -42,7 +42,7 @@ const FIELD_TYPES_CFG = [
   { value: 'select', label: 'Lista'  },
 ];
 
-function StepConfig({ action, onChange, stages }) {
+function StepConfig({ action, onChange, stages, pipelines = [] }) {
   const [fields, setFields] = useState([]);
   const [showCreate, setShowCreate] = useState(false);
   const [newField, setNewField] = useState({ name: '', type: 'text', options: '' });
@@ -138,17 +138,29 @@ function StepConfig({ action, onChange, stages }) {
 
       {action.type === 'move_stage' && (
         <div>
-          <label className="text-xs text-gray-400 mb-1.5 block">Mover para</label>
-          <div className="grid grid-cols-2 gap-1.5">
-            {stages.map(s => (
-              <button key={s.id} type="button" onClick={() => onChange({ ...action, stageId: s.id })}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs text-left transition-all
-                  ${action.stageId === s.id ? 'font-semibold border-2' : 'border-gray-100 text-gray-500 hover:bg-gray-50'}`}
-                style={action.stageId === s.id ? { borderColor: s.color, background: s.color + '12', color: s.color } : {}}>
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
-                <span className="truncate">{s.name}</span>
-              </button>
-            ))}
+          <label className="text-xs text-gray-400 mb-1.5 block">Mover para etapa</label>
+          <p className="text-[11px] text-gray-400 mb-2">Escolha uma etapa de qualquer funil — mover para outro funil transfere o lead entre funis.</p>
+          <div className="space-y-2">
+            {(pipelines.length ? pipelines : [{ id: null, name: '' }]).map(p => {
+              const funnelStages = stages.filter(s => (p.id ? s.pipeline_id === p.id : true));
+              if (funnelStages.length === 0) return null;
+              return (
+                <div key={p.id || 'all'}>
+                  {p.name && <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">{p.name}</p>}
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {funnelStages.map(s => (
+                      <button key={s.id} type="button" onClick={() => onChange({ ...action, stageId: s.id })}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs text-left transition-all
+                          ${action.stageId === s.id ? 'font-semibold border-2' : 'border-gray-100 text-gray-500 hover:bg-gray-50'}`}
+                        style={action.stageId === s.id ? { borderColor: s.color, background: s.color + '12', color: s.color } : {}}>
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
+                        <span className="truncate">{s.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -309,6 +321,7 @@ export default function Automations() {
   }
 
   const [stages, setStages] = useState([]);
+  const [pipelines, setPipelines] = useState([]);
   const [workflows, setWorkflows] = useState([]);
   const [users, setUsers] = useState([]);
   const [modal, setModal] = useState(null);
@@ -318,9 +331,10 @@ export default function Automations() {
   const [runResult, setRunResult] = useState(null);
 
   const refresh = useCallback(async () => {
-    const [w, s] = await Promise.all([db.workflows.list(), db.stages.list()]);
+    const [w, s, p] = await Promise.all([db.workflows.list(), db.stages.list(), db.pipelines.list()]);
     setWorkflows(w);
     setStages(s);
+    setPipelines(p);
   }, []);
 
   // Carrega usuários (para hierarquia de permissão) — async, sem travar o render
@@ -601,18 +615,29 @@ export default function Automations() {
                   {needsStage && (
                     <div className="mt-2 pt-3 border-t border-gray-100">
                       <p className="text-xs text-gray-400 mb-2">Em qual etapa? <span className="text-gray-300">(opcional)</span></p>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {stages.map(s => (
-                          <button key={s.id} type="button"
-                            onClick={() => setForm(f => ({ ...f, triggerStageId: f.triggerStageId === s.id ? '' : s.id }))}
-                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium text-left transition-all
-                              ${form.triggerStageId === s.id ? 'border-2' : 'border-gray-100 text-gray-500 hover:bg-gray-50'}`}
-                            style={form.triggerStageId === s.id ? { borderColor: s.color, background: s.color + '12', color: s.color } : {}}
-                          >
-                            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
-                            <span className="truncate">{s.name}</span>
-                          </button>
-                        ))}
+                      <div className="space-y-2">
+                        {(pipelines.length ? pipelines : [{ id: null, name: '' }]).map(p => {
+                          const funnelStages = stages.filter(s => (p.id ? s.pipeline_id === p.id : true));
+                          if (funnelStages.length === 0) return null;
+                          return (
+                            <div key={p.id || 'all'}>
+                              {p.name && <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">{p.name}</p>}
+                              <div className="grid grid-cols-2 gap-1.5">
+                                {funnelStages.map(s => (
+                                  <button key={s.id} type="button"
+                                    onClick={() => setForm(f => ({ ...f, triggerStageId: f.triggerStageId === s.id ? '' : s.id }))}
+                                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium text-left transition-all
+                                      ${form.triggerStageId === s.id ? 'border-2' : 'border-gray-100 text-gray-500 hover:bg-gray-50'}`}
+                                    style={form.triggerStageId === s.id ? { borderColor: s.color, background: s.color + '12', color: s.color } : {}}
+                                  >
+                                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
+                                    <span className="truncate">{s.name}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -669,7 +694,7 @@ export default function Automations() {
 
                               <div className="flex-1 min-w-0">
                                 <span className="text-sm font-medium text-gray-700">{def?.label}</span>
-                                <StepConfig action={action} onChange={u => updateAction(idx, u)} stages={stages} />
+                                <StepConfig action={action} onChange={u => updateAction(idx, u)} stages={stages} pipelines={pipelines} />
                               </div>
 
                               {/* Reordenar + remover */}

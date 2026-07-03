@@ -241,8 +241,15 @@ export const db = {
       return row;
     },
     update: async (id, data) => {
-      const { data: before } = await supabase.from('crm_leads').select('stage_id, contact_id').eq('id', id).single();
-      await supabase.from('crm_leads').update(data).eq('id', id).eq('company_id', cid());
+      const { data: before } = await supabase.from('crm_leads').select('stage_id, contact_id, pipeline_id').eq('id', id).single();
+      const patch = { ...data };
+      // Ao mudar de etapa, o pipeline_id acompanha o funil da etapa destino
+      // (permite transição de leads entre funis da mesma empresa)
+      if (data.stage_id && data.pipeline_id === undefined) {
+        const { data: st } = await supabase.from('crm_stages').select('pipeline_id').eq('id', data.stage_id).single();
+        if (st?.pipeline_id) patch.pipeline_id = st.pipeline_id;
+      }
+      await supabase.from('crm_leads').update(patch).eq('id', id).eq('company_id', cid());
       if (data.stage_id && before?.stage_id !== data.stage_id) {
         runAutomations('lead_moved_stage', { lead_id: id, stage_id: data.stage_id, contact_id: before?.contact_id });
       }
