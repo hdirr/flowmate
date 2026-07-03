@@ -280,30 +280,34 @@ export default function Automations() {
   const canEditPerm   = auth.can('automations', 'edit');
   const canRemovePerm = auth.can('automations', 'remove');
 
+  const myUserId = session?.user?.id;
+  const myRole = session?.user?.role || auth.profile?.()?.role;
+
   // Hierarquia de papéis: admin > manager > seller
   const ROLE_RANK = { admin: 3, manager: 2, seller: 1 };
   function canEditWf(wf) {
     if (!canEditPerm) return false;
     if (!wf.created_by) return true; // legado sem dono
-    if (wf.created_by === session?.userId) return true;
+    if (wf.created_by === myUserId) return true;
     // pode editar se meu rank for maior que o criador
-    const creator = userStore.list().find(u => u.id === wf.created_by);
-    const myRank = ROLE_RANK[session?.role] || 0;
+    const creator = users.find(u => u.id === wf.created_by);
+    const myRank = ROLE_RANK[myRole] || 0;
     const creatorRank = ROLE_RANK[creator?.role] || 0;
     return myRank > creatorRank;
   }
   function canRemoveWf(wf) {
     if (!canRemovePerm) return false;
     if (!wf.created_by) return true;
-    if (wf.created_by === session?.userId) return true;
-    const creator = userStore.list().find(u => u.id === wf.created_by);
-    const myRank = ROLE_RANK[session?.role] || 0;
+    if (wf.created_by === myUserId) return true;
+    const creator = users.find(u => u.id === wf.created_by);
+    const myRank = ROLE_RANK[myRole] || 0;
     const creatorRank = ROLE_RANK[creator?.role] || 0;
     return myRank > creatorRank;
   }
 
   const [stages, setStages] = useState([]);
   const [workflows, setWorkflows] = useState([]);
+  const [users, setUsers] = useState([]);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [step, setStep] = useState(1);
@@ -316,6 +320,9 @@ export default function Automations() {
     setStages(s);
   }, []);
 
+  // Carrega usuários (para hierarquia de permissão) — async, sem travar o render
+  useEffect(() => { userStore.list().then(setUsers).catch(() => setUsers([])); }, []);
+
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {
     window.addEventListener('flowmate:update', refresh);
@@ -323,7 +330,20 @@ export default function Automations() {
   }, [refresh]);
 
   async function openNew() { const s = await db.stages.list(); setStages(s); setForm(EMPTY); setStep(1); setShowPicker(false); setModal('new'); }
-  async function openEdit(wf) { const s = await db.stages.list(); setStages(s); setForm({ ...wf }); setStep(1); setShowPicker(false); setModal(wf); }
+  async function openEdit(wf) {
+    const s = await db.stages.list();
+    setStages(s);
+    // Mapeia o formato do banco (trigger_type/trigger_config) para o formato do form
+    setForm({
+      id: wf.id,
+      name: wf.name || '',
+      trigger: wf.trigger || wf.trigger_type || '',
+      triggerStageId: wf.triggerStageId || wf.trigger_config?.stage_id || '',
+      triggerDays: wf.triggerDays || wf.trigger_config?.days || 3,
+      actions: wf.actions || [],
+    });
+    setStep(1); setShowPicker(false); setModal(wf);
+  }
 
   async function toggleEnabled(wf) { await db.workflows.update(wf.id, { enabled: !wf.enabled }); await refresh(); }
   async function remove(id) { if (!confirm('Remover automação?')) return; await db.workflows.remove(id); await refresh(); }
@@ -354,7 +374,8 @@ export default function Automations() {
       }
     }
     const leads = await db.leads.list();
-    const stageLeads = wf.triggerStageId ? leads.filter(l => l.stage_id === wf.triggerStageId) : leads;
+    const stageId = wf.triggerStageId || wf.trigger_config?.stage_id;
+    const stageLeads = stageId ? leads.filter(l => l.stage_id === stageId) : leads;
     if (stageLeads.length === 0) { setRunResult({ wfId: wf.id, error: 'Nenhum lead encontrado na etapa configurada.' }); return; }
 
     // Token e instância para envio real de WhatsApp
@@ -443,8 +464,10 @@ export default function Automations() {
       )}
 
       <div className="space-y-3">
-        {workflows.filter(wf => canView || wf.created_by === session?.userId).map(wf => {
-          const trig = TRIGGERS.find(t => t.value === wf.trigger);
+        {workflows.filter(wf => canView || wf.created_by === myUserId).map(wf => {
+          const wfTrigger = wf.trigger || wf.trigger_type;
+          const wfStageId = wf.triggerStageId || wf.trigger_config?.stage_id;
+          const trig = TRIGGERS.find(t => t.value === wfTrigger);
           const TrigIcon = trig?.icon || Zap;
           return (
             <div key={wf.id} className={`bg-white rounded-2xl border p-4 transition-all ${wf.enabled ? 'border-blue-100 shadow-sm' : 'border-gray-100 opacity-70'}`}>
@@ -471,7 +494,7 @@ export default function Automations() {
                     <span className="text-xs font-semibold text-gray-400 uppercase">Se</span>
                     <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-lg font-medium">
                       {trig?.label || '—'}
-                      {wf.triggerStageId && <> → <b>{stages.find(s => s.id === wf.triggerStageId)?.name}</b></>}
+                      {wfStageId && <> → <b>{stages.find(s => s.id === wfStageId)?.name}</b></>}
                     </span>
                     {wf.actions.length > 0 && (
                       <>
