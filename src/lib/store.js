@@ -119,12 +119,51 @@ async function runAutomations(event, payload) {
 // ─── db ──────────────────────────────────────────────────────
 export const db = {
 
-  stages: {
+  // Funis (multi-pipeline)
+  pipelines: {
     list: async () => {
-      const { data } = await supabase.from('crm_stages')
+      const { data } = await supabase.from('crm_pipelines')
         .select('*')
         .eq('company_id', cid())
         .order('position');
+      return data || [];
+    },
+    create: async ({ name, allowedUsers }) => {
+      const { data: pipe } = await supabase.from('crm_pipelines')
+        .insert({ name, company_id: cid(), created_by: uid(), allowed_users: allowedUsers || [], position: 0 })
+        .select().single();
+      // Cria etapas padrão para o novo funil
+      if (pipe) {
+        const defaults = [
+          { name: 'Novo', color: '#6366f1', position: 1 },
+          { name: 'Em contato', color: '#3b82f6', position: 2 },
+          { name: 'Fechado', color: '#10b981', position: 3 },
+        ];
+        for (const s of defaults) {
+          await supabase.from('crm_stages').insert({ ...s, company_id: cid(), pipeline_id: pipe.id });
+        }
+      }
+      return pipe;
+    },
+    update: async (id, { name, allowedUsers }) => {
+      const upd = {};
+      if (name !== undefined) upd.name = name;
+      if (allowedUsers !== undefined) upd.allowed_users = allowedUsers;
+      await supabase.from('crm_pipelines').update(upd).eq('id', id).eq('company_id', cid());
+    },
+    remove: async (id) => {
+      // Remove leads e etapas do funil antes de excluí-lo
+      await supabase.from('crm_leads').delete().eq('pipeline_id', id).eq('company_id', cid());
+      await supabase.from('crm_stages').delete().eq('pipeline_id', id).eq('company_id', cid());
+      await supabase.from('crm_pipelines').delete().eq('id', id).eq('company_id', cid());
+    },
+  },
+
+  stages: {
+    list: async (pipelineId) => {
+      let q = supabase.from('crm_stages').select('*').eq('company_id', cid());
+      if (pipelineId) q = q.eq('pipeline_id', pipelineId);
+      const { data } = await q.order('position');
       return data || [];
     },
     save: async (stages) => {
@@ -180,16 +219,23 @@ export const db = {
   },
 
   leads: {
-    list: async () => {
-      const { data } = await supabase.from('crm_leads')
+    list: async (pipelineId) => {
+      let q = supabase.from('crm_leads')
         .select('*, contact:crm_contacts(*)')
-        .eq('company_id', cid())
-        .order('created_at', { ascending: false });
+        .eq('company_id', cid());
+      if (pipelineId) q = q.eq('pipeline_id', pipelineId);
+      const { data } = await q.order('created_at', { ascending: false });
       return data || [];
     },
     create: async (data) => {
+      // Deriva o pipeline_id da etapa, se não vier explícito
+      let pipeline_id = data.pipeline_id;
+      if (!pipeline_id && data.stage_id) {
+        const { data: st } = await supabase.from('crm_stages').select('pipeline_id').eq('id', data.stage_id).single();
+        pipeline_id = st?.pipeline_id || null;
+      }
       const { data: row } = await supabase.from('crm_leads')
-        .insert({ ...data, company_id: cid(), created_by: uid() })
+        .insert({ ...data, pipeline_id, company_id: cid(), created_by: uid() })
         .select().single();
       if (row) runAutomations('lead_entered_stage', { lead_id: row.id, stage_id: row.stage_id, contact_id: row.contact_id });
       return row;

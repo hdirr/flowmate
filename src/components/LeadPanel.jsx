@@ -29,11 +29,11 @@ export default function LeadPanel({ lead, onClose, onUpdate, onRemove }) {
   const [creatingField, setCreatingField] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [s, cf] = await Promise.all([db.stages.list(), db.customFields.list()]);
+    const [s, cf] = await Promise.all([db.stages.list(lead.pipeline_id), db.customFields.list()]);
     setStages(s);
     setCustomFields(cf);
     setLoading(false);
-  }, []);
+  }, [lead.pipeline_id]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
