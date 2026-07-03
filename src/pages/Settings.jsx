@@ -1,8 +1,15 @@
 import { useState, useEffect } from 'react';
 import { permissionsStore, ROLE_LABELS, DEFAULT_PERMISSIONS, auth } from '../lib/auth';
-import { RotateCcw, ShieldCheck, Smartphone, Wifi, WifiOff, Loader2, RefreshCw } from 'lucide-react';
+import { RotateCcw, ShieldCheck, Smartphone, Wifi, WifiOff, Loader2, RefreshCw, Webhook, Copy, Check, KeyRound } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { db } from '../lib/store';
 import QRCode from 'react-qrcode-logo';
+
+const OUTBOUND_EVENTS = [
+  { value: 'contact.created', label: 'Contato criado' },
+  { value: 'lead.created',    label: 'Lead criado' },
+  { value: 'lead.moved',      label: 'Lead mudou de etapa' },
+];
 
 const MODULES = {
   pipeline:    { label: 'Pipeline',    actions: { view_all: 'Ver todos', view_own: 'Ver próprios', create: 'Criar', edit: 'Editar', remove: 'Remover' } },
@@ -28,6 +35,42 @@ export default function Settings() {
   const [waLoading, setWaLoading] = useState(false);
   const [waError, setWaError] = useState(null);
   const [waTab, setWaTab] = useState('permissions');
+
+  // Integrações
+  const [integ, setInteg] = useState(null);
+  const [integUrl, setIntegUrl] = useState('');
+  const [integEvents, setIntegEvents] = useState([]);
+  const [integSaved, setIntegSaved] = useState(false);
+  const [copied, setCopied] = useState('');
+  const appOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+
+  async function loadIntegrations() {
+    const data = await db.integrations.get();
+    setInteg(data);
+    setIntegUrl(data?.webhook_url || '');
+    setIntegEvents(data?.webhook_events || []);
+  }
+  useEffect(() => { if (isAdmin) loadIntegrations(); }, [isAdmin]);
+
+  async function saveIntegrations() {
+    await db.integrations.save({ webhook_url: integUrl.trim(), webhook_events: integEvents, enabled: true });
+    await loadIntegrations();
+    setIntegSaved(true);
+    setTimeout(() => setIntegSaved(false), 1800);
+  }
+  async function regenKey() {
+    if (!confirm('Gerar uma nova chave? A chave atual deixará de funcionar imediatamente.')) return;
+    await db.integrations.regenerateKey();
+    await loadIntegrations();
+  }
+  function toggleIntegEvent(ev) {
+    setIntegEvents(prev => prev.includes(ev) ? prev.filter(e => e !== ev) : [...prev, ev]);
+  }
+  function copy(text, tag) {
+    navigator.clipboard?.writeText(text);
+    setCopied(tag);
+    setTimeout(() => setCopied(''), 1500);
+  }
 
   async function fetchWaStatus() {
     const session = await supabase.auth.getSession();
@@ -130,7 +173,83 @@ export default function Settings() {
           <Smartphone className="w-4 h-4" /> WhatsApp
           {waInstance?.status === 'connected' && <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />}
         </button>
+        <button onClick={() => setWaTab('integrations')}
+          className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border flex items-center gap-2
+            ${waTab === 'integrations' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+          <Webhook className="w-4 h-4" /> Integrações
+        </button>
       </div>
+
+      {/* Tab Integrações */}
+      {waTab === 'integrations' && (
+        <div className="space-y-6">
+          {/* Webhook de saída */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <h3 className="font-bold text-gray-800 flex items-center gap-2"><Webhook className="w-4 h-4 text-indigo-500" /> Webhook de saída</h3>
+            <p className="text-sm text-gray-400 mt-0.5 mb-4">Envie eventos do CRM para o n8n, Zapier, Make ou qualquer URL. Disparamos um POST quando o evento acontece.</p>
+
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">URL de destino</label>
+            <input value={integUrl} onChange={e => setIntegUrl(e.target.value)}
+              placeholder="https://seu-n8n.com/webhook/flowmate"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 block">Eventos a enviar <span className="text-gray-300 font-normal">(nenhum marcado = todos)</span></label>
+            <div className="space-y-1.5 mb-4">
+              {OUTBOUND_EVENTS.map(ev => {
+                const on = integEvents.includes(ev.value);
+                return (
+                  <button key={ev.value} type="button" onClick={() => toggleIntegEvent(ev.value)}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-sm text-left transition-colors
+                      ${on ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                    <span className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${on ? 'bg-indigo-500' : 'border border-gray-300'}`}>
+                      {on && <Check className="w-3 h-3 text-white" />}
+                    </span>
+                    <span className="flex-1">{ev.label}</span>
+                    <code className="text-xs text-gray-400">{ev.value}</code>
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={saveIntegrations}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${integSaved ? 'bg-green-500 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
+              {integSaved ? 'Salvo ✓' : 'Salvar webhook'}
+            </button>
+          </div>
+
+          {/* API de entrada */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <h3 className="font-bold text-gray-800 flex items-center gap-2"><KeyRound className="w-4 h-4 text-indigo-500" /> API de entrada</h3>
+            <p className="text-sm text-gray-400 mt-0.5 mb-4">Deixe plataformas externas criarem contatos/leads no FlowMate. Use a chave abaixo no header <code className="bg-gray-100 px-1 rounded">x-api-key</code>.</p>
+
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Endpoint</label>
+            <div className="flex items-center gap-2 mb-3">
+              <code className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-600 truncate">POST {appOrigin}/api/public/lead</code>
+              <button onClick={() => copy(`${appOrigin}/api/public/lead`, 'url')} className="text-gray-400 hover:text-indigo-600 p-2">
+                {copied === 'url' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+              </button>
+            </div>
+
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Sua chave (x-api-key)</label>
+            <div className="flex items-center gap-2 mb-4">
+              <code className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-600 truncate">{integ?.api_key || '— rode o SQL para gerar —'}</code>
+              {integ?.api_key && (
+                <button onClick={() => copy(integ.api_key, 'key')} className="text-gray-400 hover:text-indigo-600 p-2">
+                  {copied === 'key' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                </button>
+              )}
+              <button onClick={regenKey} title="Gerar nova chave" className="text-gray-400 hover:text-red-500 p-2"><RotateCcw className="w-4 h-4" /></button>
+            </div>
+
+            <div className="bg-gray-900 rounded-xl p-3 overflow-x-auto">
+              <pre className="text-xs text-gray-300 whitespace-pre">{`curl -X POST ${appOrigin}/api/public/lead \\
+  -H "x-api-key: ${integ?.api_key || 'SUA_CHAVE'}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name":"João","phone":"31999998888","pipeline_name":"Funil principal"}'`}</pre>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">Campos: <b>name</b> (obrigatório), phone, email, stage_id ou pipeline_name (opcionais).</p>
+          </div>
+        </div>
+      )}
 
       {/* Tab WhatsApp */}
       {waTab === 'whatsapp' && (

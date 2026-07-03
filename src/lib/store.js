@@ -9,6 +9,20 @@ function dispatch() {
 function cid() { return auth.currentCompanyId(); }
 function uid() { return auth.currentUserId(); }
 
+// Dispara um evento para o webhook de integração da empresa (via servidor, sem CORS)
+async function emitIntegration(event, data) {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) return;
+    fetch('/api/integrations/emit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ event, data }),
+    }).catch(() => {});
+  } catch { /* silencioso */ }
+}
+
 // ─── Automações ──────────────────────────────────────────────
 async function runAutomations(event, payload) {
   const { data: workflows } = await supabase
@@ -119,6 +133,26 @@ async function runAutomations(event, payload) {
 // ─── db ──────────────────────────────────────────────────────
 export const db = {
 
+  // Integrações (webhook de saída + API de entrada)
+  integrations: {
+    get: async () => {
+      const { data } = await supabase.from('company_integrations').select('*').eq('company_id', cid()).single();
+      return data || null;
+    },
+    save: async ({ webhook_url, webhook_events, enabled }) => {
+      const upd = { company_id: cid() };
+      if (webhook_url !== undefined) upd.webhook_url = webhook_url;
+      if (webhook_events !== undefined) upd.webhook_events = webhook_events;
+      if (enabled !== undefined) upd.enabled = enabled;
+      await supabase.from('company_integrations').upsert(upd, { onConflict: 'company_id' });
+    },
+    regenerateKey: async () => {
+      const key = crypto.randomUUID().replace(/-/g, '');
+      await supabase.from('company_integrations').upsert({ company_id: cid(), api_key: key }, { onConflict: 'company_id' });
+      return key;
+    },
+  },
+
   // Funis (multi-pipeline)
   pipelines: {
     list: async () => {
@@ -197,7 +231,10 @@ export const db = {
       const { data: row } = await supabase.from('crm_contacts')
         .insert({ ...data, company_id: cid(), created_by: uid() })
         .select().single();
-      if (row) runAutomations('contact_created', { contact_id: row.id });
+      if (row) {
+        runAutomations('contact_created', { contact_id: row.id });
+        emitIntegration('contact.created', { contact_id: row.id, name: row.name, phone: row.phone, email: row.email });
+      }
       return row;
     },
     update: async (id, data) => {
@@ -237,7 +274,10 @@ export const db = {
       const { data: row } = await supabase.from('crm_leads')
         .insert({ ...data, pipeline_id, company_id: cid(), created_by: uid() })
         .select().single();
-      if (row) runAutomations('lead_entered_stage', { lead_id: row.id, stage_id: row.stage_id, contact_id: row.contact_id });
+      if (row) {
+        runAutomations('lead_entered_stage', { lead_id: row.id, stage_id: row.stage_id, contact_id: row.contact_id });
+        emitIntegration('lead.created', { lead_id: row.id, stage_id: row.stage_id, pipeline_id: row.pipeline_id, contact_id: row.contact_id });
+      }
       return row;
     },
     update: async (id, data) => {
@@ -252,6 +292,7 @@ export const db = {
       await supabase.from('crm_leads').update(patch).eq('id', id).eq('company_id', cid());
       if (data.stage_id && before?.stage_id !== data.stage_id) {
         runAutomations('lead_moved_stage', { lead_id: id, stage_id: data.stage_id, contact_id: before?.contact_id });
+        emitIntegration('lead.moved', { lead_id: id, stage_id: data.stage_id, pipeline_id: patch.pipeline_id, contact_id: before?.contact_id });
       }
     },
     remove: async (id) => {
