@@ -95,6 +95,14 @@ async function runAutomations(event, payload) {
         changed = true;
       }
 
+      if (action.type === 'alert_overdue' && payload.contact_id) {
+        await supabase.from('crm_notes').insert({
+          company_id: cid(), contact_id: payload.contact_id,
+          text: '⚠️ ' + (action.body || 'Alerta: lead precisa de atenção'), auto: true,
+        });
+        changed = true;
+      }
+
       if (action.type === 'webhook' && action.body) {
         fetch(action.body, {
           method: 'POST',
@@ -154,7 +162,17 @@ export const db = {
       return row;
     },
     update: async (id, data) => {
+      // Detecta tags recém-adicionadas para disparar o gatilho tag_added
+      let newTags = [];
+      if (data.tags) {
+        const { data: before } = await supabase.from('crm_contacts').select('tags').eq('id', id).single();
+        const prev = before?.tags || [];
+        newTags = data.tags.filter(t => !prev.includes(t));
+      }
       await supabase.from('crm_contacts').update(data).eq('id', id).eq('company_id', cid());
+      for (const tag of newTags) {
+        runAutomations('tag_added', { contact_id: id, tag });
+      }
     },
     remove: async (id) => {
       await supabase.from('crm_contacts').delete().eq('id', id).eq('company_id', cid());
@@ -184,7 +202,12 @@ export const db = {
       }
     },
     remove: async (id) => {
+      // Captura o contato antes de excluir para disparar o gatilho lead_lost
+      const { data: before } = await supabase.from('crm_leads').select('contact_id').eq('id', id).single();
       await supabase.from('crm_leads').delete().eq('id', id).eq('company_id', cid());
+      if (before?.contact_id) {
+        runAutomations('lead_lost', { lead_id: id, contact_id: before.contact_id });
+      }
     },
   },
 

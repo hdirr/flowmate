@@ -13,20 +13,20 @@ const TRIGGERS = [
   { value: 'lead_entered_stage', label: 'Lead entrar em uma etapa',      icon: KanbanSquare, color: '#6366f1', desc: 'Dispara quando um lead chega numa etapa específica' },
   { value: 'lead_moved_stage',   label: 'Lead ser movido de etapa',      icon: KanbanSquare, color: '#3b82f6', desc: 'Dispara ao arrastar o lead para outra etapa' },
   { value: 'contact_created',    label: 'Novo contato criado',           icon: UserPlus,     color: '#10b981', desc: 'Dispara ao cadastrar um novo contato' },
-  { value: 'lead_inactive',      label: 'Lead sem atividade por X dias', icon: Clock,        color: '#f59e0b', desc: 'Dispara quando nenhuma ação é feita por N dias' },
+  { value: 'lead_inactive',      label: 'Lead sem atividade por X dias', icon: Clock,        color: '#f59e0b', desc: 'Dispara quando nenhuma ação é feita por N dias', soon: true },
   { value: 'tag_added',          label: 'Tag adicionada ao contato',     icon: Tag,          color: '#ec4899', desc: 'Dispara ao marcar um contato com uma tag' },
   { value: 'lead_lost',          label: 'Lead marcado como perdido',     icon: UserMinus,    color: '#ef4444', desc: 'Dispara quando um lead é removido do pipeline' },
 ];
 
 const ACTIONS = [
   { value: 'send_whatsapp', label: 'Enviar WhatsApp',    icon: MessageCircle, color: '#25d366' },
-  { value: 'send_email',    label: 'Enviar e-mail',      icon: Mail,          color: '#6366f1' },
+  { value: 'send_email',    label: 'Enviar e-mail',      icon: Mail,          color: '#6366f1', soon: true },
   { value: 'add_note',      label: 'Nota interna',       icon: StickyNote,    color: '#f59e0b' },
   { value: 'notify_team',   label: 'Notificar equipe',   icon: Bell,          color: '#8b5cf6' },
   { value: 'move_stage',    label: 'Mover etapa',        icon: KanbanSquare,  color: '#3b82f6' },
   { value: 'add_tag',       label: 'Adicionar tag',      icon: Tag,           color: '#ec4899' },
   { value: 'mark_priority', label: 'Marcar prioritário', icon: Star,          color: '#f59e0b' },
-  { value: 'wait_days',     label: 'Aguardar dias',      icon: Clock,         color: '#6b7280' },
+  { value: 'wait_days',     label: 'Aguardar dias',      icon: Clock,         color: '#6b7280', soon: true },
   { value: 'webhook',       label: 'Webhook',            icon: Webhook,       color: '#0ea5e9' },
   { value: 'alert_overdue', label: 'Alertar atraso',     icon: AlertCircle,   color: '#ef4444' },
   { value: 'set_field',    label: 'Alterar campo',      icon: PenLine,       color: '#0891b2' },
@@ -83,7 +83,7 @@ function StepConfig({ action, onChange, stages }) {
     setShowCreate(false);
   }
 
-  const hasTextBody = ['send_whatsapp', 'send_email', 'add_note', 'notify_team', 'webhook'].includes(action.type);
+  const hasTextBody = ['send_whatsapp', 'send_email', 'add_note', 'notify_team', 'webhook', 'alert_overdue'].includes(action.type);
 
   return (
     <div className="mt-2 space-y-2">
@@ -259,12 +259,15 @@ function ActionPicker({ onAdd }) {
       {ACTIONS.map(a => {
         const Icon = a.icon;
         return (
-          <button key={a.value} type="button" onClick={() => onAdd(a.value)}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50 text-left transition-colors">
+          <button key={a.value} type="button" disabled={a.soon} onClick={() => !a.soon && onAdd(a.value)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-colors ${a.soon ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-50'}`}>
             <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0" style={{ background: a.color + '20' }}>
               <Icon className="w-3.5 h-3.5" style={{ color: a.color }} />
             </div>
-            <span className="text-xs font-medium text-gray-700">{a.label}</span>
+            <span className="text-xs font-medium text-gray-700 flex items-center gap-1">
+              {a.label}
+              {a.soon && <span className="text-[9px] bg-gray-100 text-gray-400 px-1 py-0.5 rounded-full font-semibold uppercase">em breve</span>}
+            </span>
           </button>
         );
       })}
@@ -575,16 +578,19 @@ export default function Automations() {
                     const Icon = t.icon;
                     const active = form.trigger === t.value;
                     return (
-                      <button key={t.value} type="button"
-                        onClick={() => setForm(f => ({ ...f, trigger: t.value, triggerStageId: '' }))}
+                      <button key={t.value} type="button" disabled={t.soon}
+                        onClick={() => !t.soon && setForm(f => ({ ...f, trigger: t.value, triggerStageId: '' }))}
                         className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all
-                          ${active ? 'border-blue-400 bg-blue-50' : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'}`}
+                          ${t.soon ? 'border-gray-100 opacity-50 cursor-not-allowed' : active ? 'border-blue-400 bg-blue-50' : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'}`}
                       >
                         <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: t.color + '20' }}>
                           <Icon className="w-5 h-5" style={{ color: t.color }} />
                         </div>
                         <div className="flex-1">
-                          <p className={`text-sm font-medium ${active ? 'text-blue-700' : 'text-gray-700'}`}>{t.label}</p>
+                          <p className={`text-sm font-medium flex items-center gap-2 ${active ? 'text-blue-700' : 'text-gray-700'}`}>
+                            {t.label}
+                            {t.soon && <span className="text-[10px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full font-semibold uppercase">em breve</span>}
+                          </p>
                           <p className="text-xs text-gray-400 mt-0.5">{t.desc}</p>
                         </div>
                         {active && <div className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />}
