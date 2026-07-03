@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { db } from '../lib/store';
 import { auth } from '../lib/auth';
-import { Send, Search, MessageCircle, Wifi, WifiOff, Loader2, RefreshCw, Paperclip, FileText, X } from 'lucide-react';
+import { Send, Search, MessageCircle, Wifi, WifiOff, Loader2, RefreshCw, Paperclip, FileText, X, UserCog } from 'lucide-react';
+import ContactPanel from '../components/ContactPanel';
 
 function timeLabel(ts) {
   const d = ts > 1e10 ? new Date(ts) : new Date(ts * 1000);
@@ -77,6 +78,7 @@ export default function Chats() {
   const [sending, setSending] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [editContact, setEditContact] = useState(null);
   const [search, setSearch] = useState('');
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -373,13 +375,26 @@ export default function Chats() {
         <div className="flex-1 flex flex-col bg-gray-50">
           <div className="bg-white border-b border-gray-100 px-4 py-3 flex items-center gap-3">
             <button onClick={() => setSelected(null)} className="md:hidden text-gray-400 hover:text-gray-600">←</button>
-            <div className="w-9 h-9 rounded-full bg-green-100 flex items-center justify-center">
-              <span className="text-sm font-bold text-green-600">{selected.name[0].toUpperCase()}</span>
-            </div>
-            <div>
-              <p className="font-semibold text-sm">{selected.name}</p>
-              <p className="text-xs text-gray-400">{selected.phone}</p>
-            </div>
+            <button
+              onClick={() => selected.contact && setEditContact(selected.contact)}
+              className="flex items-center gap-3 flex-1 min-w-0 text-left group"
+              title="Ver / editar dados do contato">
+              <div className="w-9 h-9 rounded-full bg-green-100 flex items-center justify-center shrink-0">
+                <span className="text-sm font-bold text-green-600">{selected.name[0].toUpperCase()}</span>
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-sm truncate group-hover:text-green-600 transition-colors">{selected.name}</p>
+                <p className="text-xs text-gray-400 truncate">{selected.phone}</p>
+              </div>
+            </button>
+            {selected.contact && (
+              <button
+                onClick={() => setEditContact(selected.contact)}
+                title="Editar dados do lead"
+                className="shrink-0 flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 border border-gray-200 hover:border-blue-200 rounded-lg px-2.5 py-1.5 transition-colors">
+                <UserCog className="w-4 h-4" /> <span className="hidden sm:inline">Editar</span>
+              </button>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -446,6 +461,18 @@ export default function Chats() {
           <MessageCircle className="w-16 h-16 opacity-20" />
           <p className="text-gray-400">Selecione uma conversa</p>
         </div>
+      )}
+
+      {/* Painel lateral de edição do contato (aberto pelo header do chat) */}
+      {editContact && (
+        <ContactPanel
+          contact={editContact}
+          onClose={() => setEditContact(null)}
+          onSave={async () => {
+            setEditContact(null);
+            await loadMessages(); // recarrega contatos → nome atualizado na conversa
+          }}
+        />
       )}
     </div>
   );
