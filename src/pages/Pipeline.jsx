@@ -7,6 +7,68 @@ import LeadPanel from '../components/LeadPanel';
 const COLORS = ['#6366f1','#3b82f6','#06b6d4','#10b981','#f59e0b','#ef4444','#ec4899','#8b5cf6'];
 const LAST_KEY = 'flowmate:lastPipeline';
 
+// Modal de funil (componente de módulo — evita remount/perda de foco ao digitar)
+function FunnelModal({ mode, form, setForm, companyUsers, saving, onSave, onRemove, onClose }) {
+  const isNew = mode === 'new';
+  function toggleUser(uid) {
+    setForm(f => ({
+      ...f,
+      allowedUsers: f.allowedUsers.includes(uid) ? f.allowedUsers.filter(x => x !== uid) : [...f.allowedUsers, uid],
+    }));
+  }
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-xl max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="font-bold text-lg">{isNew ? 'Novo funil' : 'Configurar funil'}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+        </div>
+
+        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Nome do funil</label>
+        <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+          placeholder="Ex: Vendas, Suporte, Pós-venda"
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-blue-400" autoFocus />
+
+        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 block flex items-center gap-1.5">
+          <Users className="w-3.5 h-3.5" /> Quem tem acesso
+        </label>
+        <p className="text-xs text-gray-400 mb-2">Admins têm acesso a todos os funis. Marque os gerentes/vendedores que poderão usar este.</p>
+        <div className="space-y-1.5 mb-5 max-h-52 overflow-y-auto">
+          {companyUsers.length === 0 && <p className="text-xs text-gray-400 py-2">Nenhum outro usuário na empresa.</p>}
+          {companyUsers.map(u => {
+            const on = form.allowedUsers.includes(u.id);
+            return (
+              <button key={u.id} type="button" onClick={() => toggleUser(u.id)}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-sm text-left transition-colors
+                  ${on ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                <span className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${on ? 'bg-blue-500' : 'border border-gray-300'}`}>
+                  {on && <Check className="w-3 h-3 text-white" />}
+                </span>
+                <span className="flex-1 truncate">{u.name || u.email}</span>
+                <span className="text-xs text-gray-400">{u.role}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex gap-2">
+          {!isNew && (
+            <button onClick={onRemove} className="px-3 border border-red-200 text-red-500 rounded-lg py-2 text-sm hover:bg-red-50">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+          <button onClick={onClose} className="flex-1 border border-gray-200 rounded-lg py-2 text-sm text-gray-600 hover:bg-gray-50">Cancelar</button>
+          <button onClick={onSave} disabled={!form.name.trim() || saving}
+            className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5">
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isNew ? 'Criar funil' : 'Salvar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Pipeline() {
   const session = auth.session();
   const role = auth.profile()?.role;
@@ -191,12 +253,6 @@ export default function Pipeline() {
     await loadBoard(next?.id);
     setFunnelModal(null);
   }
-  function toggleUser(uid) {
-    setFunnelForm(f => ({
-      ...f,
-      allowedUsers: f.allowedUsers.includes(uid) ? f.allowedUsers.filter(x => x !== uid) : [...f.allowedUsers, uid],
-    }));
-  }
 
   if (loading) {
     return <div className="flex-1 flex items-center justify-center h-full"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>;
@@ -212,61 +268,18 @@ export default function Pipeline() {
             Criar primeiro funil
           </button>
         )}
-        {funnelModal && <FunnelModal />}
-      </div>
-    );
-  }
-
-  function FunnelModal() {
-    return (
-      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={e => e.target === e.currentTarget && setFunnelModal(null)}>
-        <div className="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-xl max-h-[90vh] overflow-y-auto">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="font-bold text-lg">{funnelModal === 'new' ? 'Novo funil' : 'Configurar funil'}</h2>
-            <button onClick={() => setFunnelModal(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
-          </div>
-
-          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Nome do funil</label>
-          <input value={funnelForm.name} onChange={e => setFunnelForm(f => ({ ...f, name: e.target.value }))}
-            placeholder="Ex: Vendas, Suporte, Pós-venda"
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-blue-400" autoFocus />
-
-          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 block flex items-center gap-1.5">
-            <Users className="w-3.5 h-3.5" /> Quem tem acesso
-          </label>
-          <p className="text-xs text-gray-400 mb-2">Admins têm acesso a todos os funis. Marque os gerentes/vendedores que poderão usar este.</p>
-          <div className="space-y-1.5 mb-5 max-h-52 overflow-y-auto">
-            {companyUsers.length === 0 && <p className="text-xs text-gray-400 py-2">Nenhum outro usuário na empresa.</p>}
-            {companyUsers.map(u => {
-              const on = funnelForm.allowedUsers.includes(u.id);
-              return (
-                <button key={u.id} type="button" onClick={() => toggleUser(u.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-sm text-left transition-colors
-                    ${on ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-                  <span className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${on ? 'bg-blue-500' : 'border border-gray-300'}`}>
-                    {on && <Check className="w-3 h-3 text-white" />}
-                  </span>
-                  <span className="flex-1 truncate">{u.name || u.email}</span>
-                  <span className="text-xs text-gray-400">{u.role}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="flex gap-2">
-            {funnelModal !== 'new' && (
-              <button onClick={() => removeFunnel(funnelModal)} className="px-3 border border-red-200 text-red-500 rounded-lg py-2 text-sm hover:bg-red-50">
-                <Trash2 className="w-4 h-4" />
-              </button>
-            )}
-            <button onClick={() => setFunnelModal(null)} className="flex-1 border border-gray-200 rounded-lg py-2 text-sm text-gray-600 hover:bg-gray-50">Cancelar</button>
-            <button onClick={saveFunnel} disabled={!funnelForm.name.trim() || savingFunnel}
-              className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5">
-              {savingFunnel && <Loader2 className="w-4 h-4 animate-spin" />}
-              {funnelModal === 'new' ? 'Criar funil' : 'Salvar'}
-            </button>
-          </div>
-        </div>
+        {funnelModal && (
+          <FunnelModal
+            mode={funnelModal === 'new' ? 'new' : 'edit'}
+            form={funnelForm}
+            setForm={setFunnelForm}
+            companyUsers={companyUsers}
+            saving={savingFunnel}
+            onSave={saveFunnel}
+            onRemove={() => removeFunnel(funnelModal)}
+            onClose={() => setFunnelModal(null)}
+          />
+        )}
       </div>
     );
   }
