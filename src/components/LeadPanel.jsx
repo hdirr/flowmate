@@ -13,6 +13,7 @@ const FIELD_TYPES_CFG = [
 export default function LeadPanel({ lead, onClose, onUpdate, onRemove }) {
   const navigate = useNavigate();
   const [stages, setStages] = useState([]);
+  const [pipelines, setPipelines] = useState([]);
   const [customFields, setCustomFields] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -29,11 +30,12 @@ export default function LeadPanel({ lead, onClose, onUpdate, onRemove }) {
   const [creatingField, setCreatingField] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [s, cf] = await Promise.all([db.stages.list(lead.pipeline_id), db.customFields.list()]);
+    const [s, cf, p] = await Promise.all([db.stages.list(), db.customFields.list(), db.pipelines.list()]);
     setStages(s);
     setCustomFields(cf);
+    setPipelines(p);
     setLoading(false);
-  }, [lead.pipeline_id]);
+  }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -265,20 +267,39 @@ export default function LeadPanel({ lead, onClose, onUpdate, onRemove }) {
               </div>
             </section>
 
-            {/* Mover de etapa */}
+            {/* Mover de etapa / funil */}
             <section>
-              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Mover para etapa</h3>
-              <div className="space-y-1.5">
-                {stages.map(s => (
-                  <button key={s.id} onClick={() => moveStage(s.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-sm transition-colors
-                      ${lead.stage_id === s.id ? 'border-transparent font-semibold' : 'border-gray-100 hover:bg-gray-50 text-gray-600'}`}
-                    style={lead.stage_id === s.id ? { background: s.color + '18', color: s.color, borderColor: s.color + '44' } : {}}>
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
-                    {s.name}
-                    {lead.stage_id === s.id && <MoveRight className="w-3.5 h-3.5 ml-auto" />}
-                  </button>
-                ))}
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Mover para etapa</h3>
+              <p className="text-[11px] text-gray-400 mb-3">Escolha uma etapa de outro funil para transferir o contato entre funis.</p>
+              <div className="space-y-3">
+                {(pipelines.length ? pipelines : [{ id: null, name: '' }]).map(p => {
+                  const funnelStages = stages.filter(s => (p.id ? s.pipeline_id === p.id : true));
+                  if (funnelStages.length === 0) return null;
+                  const isCurrentFunnel = p.id && p.id === lead.pipeline_id;
+                  return (
+                    <div key={p.id || 'all'}>
+                      {p.name && (
+                        <p className="text-[11px] font-semibold uppercase tracking-wide mb-1.5 flex items-center gap-1.5"
+                          style={{ color: isCurrentFunnel ? '#2563eb' : '#9ca3af' }}>
+                          {p.name}
+                          {isCurrentFunnel && <span className="text-[9px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">atual</span>}
+                        </p>
+                      )}
+                      <div className="space-y-1.5">
+                        {funnelStages.map(s => (
+                          <button key={s.id} onClick={() => moveStage(s.id)}
+                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-sm transition-colors
+                              ${lead.stage_id === s.id ? 'border-transparent font-semibold' : 'border-gray-100 hover:bg-gray-50 text-gray-600'}`}
+                            style={lead.stage_id === s.id ? { background: s.color + '18', color: s.color, borderColor: s.color + '44' } : {}}>
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
+                            {s.name}
+                            {lead.stage_id === s.id && <MoveRight className="w-3.5 h-3.5 ml-auto" />}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </section>
           </div>
