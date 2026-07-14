@@ -16,8 +16,14 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
-  const segments = req.query?.path || [];
-  const route = Array.isArray(segments) ? segments.join('/') : String(segments);
+  // Deriva a rota da URL. Não dá pra confiar em req.query.path: quando a chamada
+  // chega via rewrite (/v1/* → /api/v1/*), o parâmetro dinâmico vem vazio.
+  const segments = req.query?.path;
+  let route = Array.isArray(segments) ? segments.join('/') : (segments || '');
+  if (!route) {
+    const pathname = (req.url || '').split('?')[0];
+    route = pathname.replace(/^\/(api\/)?v1\//, '').replace(/\/+$/, '');
+  }
 
   const apiKey = req.headers['x-api-key'] || req.query?.key;
   const companyId = await resolveApiKey(apiKey);
