@@ -79,6 +79,11 @@ export default function Settings() {
     await db.integrations.regenerateKey();
     await loadIntegrations();
   }
+  async function regenSecret() {
+    if (!confirm('Gerar um novo segredo? As assinaturas passarão a usar o novo — atualize no n8n.')) return;
+    await db.integrations.regenerateWebhookSecret();
+    await loadIntegrations();
+  }
   function toggleIntegEvent(ev) {
     setIntegEvents(prev => prev.includes(ev) ? prev.filter(e => e !== ev) : [...prev, ev]);
   }
@@ -241,6 +246,61 @@ export default function Settings() {
               className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${integSaved ? 'bg-green-500 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
               {integSaved ? 'Salvo ✓' : 'Salvar webhook'}
             </button>
+
+            {/* Assinatura HMAC — requisito de lançamento, não opcional */}
+            <div className="mt-6 pt-5 border-t border-gray-100">
+              <h4 className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-1">
+                <ShieldCheck className="w-4 h-4 text-indigo-500" /> Assinatura (HMAC)
+              </h4>
+              <p className="text-xs text-gray-400 mb-3">
+                Todo POST vai assinado. Verifique no n8n para garantir que o evento veio mesmo do FlowMate —
+                sem isso, quem descobrir sua URL consegue forjar eventos.
+              </p>
+
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Segredo de assinatura</label>
+              <div className="flex items-center gap-2 mb-3">
+                <code className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-600 truncate">
+                  {integ?.webhook_secret || '— salve o webhook para gerar —'}
+                </code>
+                {integ?.webhook_secret && (
+                  <button onClick={() => copy(integ.webhook_secret, 'secret')} className="text-gray-400 hover:text-indigo-600 p-2">
+                    {copied === 'secret' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                )}
+                <button onClick={regenSecret} title="Gerar novo segredo" className="text-gray-400 hover:text-red-500 p-2">
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-gray-500 mb-1.5">Headers enviados em cada POST:</p>
+              <div className="bg-gray-900 rounded-xl p-3 overflow-x-auto mb-3">
+                <pre className="text-xs text-gray-300 whitespace-pre">{`X-Flowmate-Event-Id:   <uuid do evento>
+X-Flowmate-Timestamp:  <unix seconds>
+X-Flowmate-Signature:  sha256=<hex>`}</pre>
+              </div>
+
+              <p className="text-xs text-gray-500 mb-1.5">Como verificar (nó Code do n8n):</p>
+              <div className="bg-gray-900 rounded-xl p-3 overflow-x-auto">
+                <pre className="text-xs text-gray-300 whitespace-pre">{`const crypto = require('crypto');
+const secret = '${integ?.webhook_secret || 'SEU_SEGREDO'}';
+const ts   = $input.first().headers['x-flowmate-timestamp'];
+const sig  = $input.first().headers['x-flowmate-signature'];
+const body = JSON.stringify($input.first().json);
+
+const expected = 'sha256=' + crypto
+  .createHmac('sha256', secret)
+  .update(\`\${ts}.\${body}\`)
+  .digest('hex');
+
+if (sig !== expected) throw new Error('Assinatura inválida');
+return $input.all();`}</pre>
+              </div>
+
+              <p className="text-xs text-gray-400 mt-2">
+                O payload traz <code className="bg-gray-100 px-1 rounded">event_id</code> único —
+                use para <b>deduplicar</b> (quando o retry entrar, o mesmo evento pode chegar duas vezes).
+              </p>
+            </div>
           </div>
 
           {/* API de entrada */}

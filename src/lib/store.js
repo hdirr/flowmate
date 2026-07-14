@@ -152,6 +152,11 @@ export const db = {
       await supabase.from('company_integrations').upsert({ company_id: cid(), api_key: key }, { onConflict: 'company_id' });
       return key;
     },
+    regenerateWebhookSecret: async () => {
+      const secret = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
+      await supabase.from('company_integrations').upsert({ company_id: cid(), webhook_secret: secret }, { onConflict: 'company_id' });
+      return secret;
+    },
   },
 
   // Funis (multi-pipeline)
