@@ -122,6 +122,17 @@ export default function Chats() {
     setConversations(convs);
   }, [instance]);
 
+  // ─── Estado da conversa (automação | humano) ───
+  const loadConvState = useCallback(async (phone) => {
+    if (!phone) return;
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    const res = await fetch(`/api/conversations/state?to=${encodeURIComponent(phone)}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (res.ok) setConvState(await res.json());
+  }, []);
+
   useEffect(() => { loadInstance(); }, [loadInstance]);
   useEffect(() => { loadMessages(); }, [loadMessages]);
 
@@ -235,17 +246,6 @@ export default function Chats() {
     await loadMessages();
     await loadConvState(selected.phone);
   }
-
-  // ─── Estado da conversa (automação | humano) ───
-  const loadConvState = useCallback(async (phone) => {
-    if (!phone) return;
-    const session = await supabase.auth.getSession();
-    const token = session.data.session?.access_token;
-    const res = await fetch(`/api/conversations/state?to=${encodeURIComponent(phone)}`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (res.ok) setConvState(await res.json());
-  }, []);
 
   async function resumeAutomation() {
     if (!selected) return;
