@@ -6,3 +6,6 @@ dist
 
 # segredos locais
 recovery-codes.txt
+
+# config local do Claude (contém tokens)
+.claude/settings.local.json

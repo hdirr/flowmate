@@ -9,7 +9,11 @@
       "destination": "https://fwtnzxehfaqeklueojkp.supabase.co/functions/v1/:path*"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/v1/:path*",
+      "destination": "/api/v1/:path*"
+    },
+    {
+      "source": "/((?!api/|v1/).*)",
       "destination": "/index.html"
     }
   ]

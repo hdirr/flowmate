@@ -1,27 +1,49 @@
-import { adminClient, resolveApiKey } from '../_lib/db.js';
+import { adminClient } from './db.js';
+import { sendMessage } from './sendMessage.js';
+
+/**
+ * POST /v1/messages — a boca do n8n.
+ * Body: { to, content, media?: { url, type, mimeType?, fileName? } }
+ * Sempre sender = 'automation'. Conversa em 'human' → 409 conversation_paused.
+ * O consumidor não precisa checar estado: a pausa é imposta aqui, no ponto de saída.
+ */
+export async function handleMessages(req, res, companyId) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
+
+  const { to, content, media } = req.body || {};
+  if (!to) return res.status(400).json({ error: 'missing_to' });
+  if (!content && !media) return res.status(400).json({ error: 'missing_content' });
+
+  const result = await sendMessage({
+    companyId,
+    to,
+    content,
+    media: media || null,
+    sender: 'automation',
+  });
+
+  if (result.error) {
+    return res.status(result.status || 400).json({
+      error: result.error,
+      conversation_id: result.conversationId || null,
+    });
+  }
+
+  return res.status(200).json({
+    ok: true,
+    message_id: result.messageId,
+    conversation_id: result.conversationId,
+  });
+}
 
 /**
  * POST /v1/leads — idempotente por external_id.
- *
- * Header: x-api-key: <api key do tenant>
- * Body:   { external_id, name, phone?, email?, stage_id?, pipeline_name? }
- *
- * Upsert por (company_id, external_id). Sem isso: o n8n re-executa o workflow em erro
- * e o mesmo lead vira 3 contatos e 3 "olá" no WhatsApp da pessoa.
- *
- * Sem external_id, cai no comportamento antigo (cria sempre) — o /api/public/lead
- * continua existindo e não foi tocado.
+ * Body: { external_id, name, phone?, email?, stage_id?, pipeline_name? }
+ * Upsert por (company_id, external_id): o n8n re-executando o workflow não vira
+ * 3 contatos e 3 "olá" no WhatsApp da pessoa.
  */
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
-  if (req.method === 'OPTIONS') return res.status(204).end();
+export async function handleLeads(req, res, companyId) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
-
-  const apiKey = req.headers['x-api-key'] || req.query?.key;
-  const companyId = await resolveApiKey(apiKey);
-  if (!companyId) return res.status(401).json({ error: 'invalid_api_key' });
 
   const { external_id, name, phone, email, stage_id, pipeline_name } = req.body || {};
   if (!name) return res.status(400).json({ error: 'missing_name' });
@@ -31,14 +53,10 @@ export default async function handler(req, res) {
   // ─── Idempotência ───
   if (external_id) {
     const { data: existing } = await admin
-      .from('crm_contacts')
-      .select('id')
-      .eq('company_id', companyId)
-      .eq('external_id', external_id)
-      .single();
+      .from('crm_contacts').select('id')
+      .eq('company_id', companyId).eq('external_id', external_id).single();
 
     if (existing) {
-      // Já existe: atualiza os dados e devolve o mesmo id. Nenhum lead novo, nenhum "olá" duplicado.
       await admin.from('crm_contacts')
         .update({ name, phone: phone || null, email: email || null })
         .eq('id', existing.id);
@@ -47,27 +65,23 @@ export default async function handler(req, res) {
         .from('crm_leads').select('id').eq('contact_id', existing.id).limit(1);
 
       return res.status(200).json({
-        ok: true,
-        created: false,
+        ok: true, created: false,
         contact_id: existing.id,
         lead_id: lead?.[0]?.id || null,
       });
     }
   }
 
-  // ─── Cria o contato ───
   const { data: contact, error: cErr } = await admin.from('crm_contacts')
     .insert({
-      company_id: companyId,
-      name,
-      phone: phone || null,
-      email: email || null,
+      company_id: companyId, name,
+      phone: phone || null, email: email || null,
       external_id: external_id || null,
     })
     .select().single();
   if (cErr) return res.status(400).json({ error: cErr.message });
 
-  // ─── Resolve etapa/funil de destino ───
+  // Resolve etapa/funil
   let targetStageId = stage_id || null;
   let pipelineId = null;
 
@@ -97,8 +111,7 @@ export default async function handler(req, res) {
   }
 
   return res.status(200).json({
-    ok: true,
-    created: true,
+    ok: true, created: true,
     contact_id: contact.id,
     lead_id: lead?.id || null,
   });

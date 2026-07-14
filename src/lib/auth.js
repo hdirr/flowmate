@@ -116,7 +116,7 @@ export const userStore = {
   list: async () => {
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
-    const res = await fetch('/api/list-users', {
+    const res = await fetch('/api/users', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     if (!res.ok) return [];
@@ -128,16 +128,13 @@ export const userStore = {
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
 
-    const res = await fetch('/api/create-user', {
+    const res = await fetch('/api/users', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        name, email, password, role,
-        company_id: auth.currentCompanyId(),
-      }),
+      body: JSON.stringify({ action: 'create', name, email, password, role }),
     });
 
     const data = await res.json();
@@ -148,10 +145,10 @@ export const userStore = {
   update: async (userId, { name, role, email, password }) => {
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
-    const res = await fetch('/api/update-user', {
+    const res = await fetch('/api/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ userId, name, role, email, password }),
+      body: JSON.stringify({ action: 'update', userId, name, role, email, password }),
     });
     const data = await res.json();
     if (!res.ok) return { error: data.error || 'Erro ao atualizar usuário' };
