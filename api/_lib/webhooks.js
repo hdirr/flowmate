@@ -52,7 +52,20 @@ export async function dispatchWebhook(companyId, event, data) {
     timestamp: Date.now(),
   };
 
-  const rawBody = JSON.stringify(payload);
+  // ┌─────────────────────────────────────────────────────────────────────────┐
+  // │ TRAVA DE ASSINATURA — NÃO REORGANIZE ISTO.                               │
+  // │                                                                          │
+  // │ Serializamos UMA vez, para os MESMOS bytes (UTF-8), e usamos essa mesma  │
+  // │ string em DOIS lugares: no HMAC e no body do fetch.                      │
+  // │                                                                          │
+  // │ É PROIBIDO reserializar. Se alguém "otimizar" para                       │
+  // │   body: JSON.stringify(payload)                                          │
+  // │ o corpo enviado pode divergir por 1 byte (acento, emoji, ordem, espaço)  │
+  // │ dos bytes assinados, e TODA assinatura passa a falhar no consumidor —    │
+  // │ sem erro aqui, quebrando só em produção com acento/emoji. Uma serialização,│
+  // │ um buffer, assina e manda ESSE buffer. Ponto.                            │
+  // └─────────────────────────────────────────────────────────────────────────┘
+  const bodyBuffer = Buffer.from(JSON.stringify(payload), 'utf8');
   const tsSeconds = Math.floor(Date.now() / 1000);
 
   const headers = {
@@ -64,7 +77,7 @@ export async function dispatchWebhook(companyId, event, data) {
   if (integ.webhook_secret) {
     const signature = crypto
       .createHmac('sha256', integ.webhook_secret)
-      .update(`${tsSeconds}.${rawBody}`)
+      .update(Buffer.concat([Buffer.from(`${tsSeconds}.`, 'utf8'), bodyBuffer])) // assina os MESMOS bytes que vão no body
       .digest('hex');
     headers['X-Flowmate-Signature'] = `sha256=${signature}`;
   }
@@ -72,7 +85,7 @@ export async function dispatchWebhook(companyId, event, data) {
   await fetch(integ.webhook_url, {
     method: 'POST',
     headers,
-    body: rawBody,
+    body: bodyBuffer, // <- exatamente o buffer assinado acima
   }).catch(() => {});
 
   return { ok: true, event_id: eventId };
