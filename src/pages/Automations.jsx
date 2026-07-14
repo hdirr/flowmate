@@ -413,17 +413,18 @@ export default function Automations() {
           if (phone) {
             if (!phone.startsWith('55') && (phone.length === 10 || phone.length === 11)) phone = '55' + phone;
             const msg = (action.body || '').replace(/\{nome\}/gi, lead.contact?.name || '');
+            // Bot = automação. Conversa em modo humano rejeita com 409.
             if (action.mediaUrl) {
               await fetch('/api/whatsapp/send-media', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ to: phone, mediaUrl: action.mediaUrl, mediaType: action.mediaType, mimeType: action.mimeType, fileName: action.fileName, caption: msg || undefined, instanceName }),
+                body: JSON.stringify({ to: phone, mediaUrl: action.mediaUrl, mediaType: action.mediaType, mimeType: action.mimeType, fileName: action.fileName, caption: msg || undefined, sender: 'automation' }),
               }).catch(() => {});
             } else {
               await fetch('/api/whatsapp/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ to: phone, message: msg, instanceName }),
+                body: JSON.stringify({ to: phone, message: msg, sender: 'automation' }),
               }).catch(() => {});
             }
           }

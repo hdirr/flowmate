@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { db } from '../lib/store';
 import { auth } from '../lib/auth';
-import { Send, Search, MessageCircle, Wifi, WifiOff, Loader2, RefreshCw, Paperclip, FileText, X, UserCog } from 'lucide-react';
+import { Send, Search, MessageCircle, Wifi, WifiOff, Loader2, RefreshCw, Paperclip, FileText, X, UserCog, Bot } from 'lucide-react';
 import ContactPanel from '../components/ContactPanel';
 
 function timeLabel(ts) {
@@ -79,6 +79,8 @@ export default function Chats() {
   const [syncing, setSyncing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [editContact, setEditContact] = useState(null);
+  const [convState, setConvState] = useState(null);   // { state, state_since, state_by }
+  const [resuming, setResuming] = useState(false);
   const [search, setSearch] = useState('');
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -193,6 +195,15 @@ export default function Chats() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [selected, messages]);
 
+  // Ao abrir uma conversa, busca o estado; o polling mantém em dia
+  // (o dono pode ter respondido pelo celular).
+  useEffect(() => {
+    if (!selected?.phone) { setConvState(null); return; }
+    loadConvState(selected.phone);
+    const t = setInterval(() => { if (!document.hidden) loadConvState(selected.phone); }, 10000);
+    return () => clearInterval(t);
+  }, [selected?.phone, loadConvState]);
+
   async function syncMessages() {
     setSyncing(true);
     const session = await supabase.auth.getSession();
@@ -216,12 +227,38 @@ export default function Chats() {
       body: JSON.stringify({
         to: toWhatsAppNumber(selected.phone),
         message: text.trim(),
-        instanceName: instance.instance_name || instance.instanceName,
+        sender: 'human', // dono digitou → a conversa passa a ser humana automaticamente
       }),
     });
     setText('');
     setSending(false);
     await loadMessages();
+    await loadConvState(selected.phone);
+  }
+
+  // ─── Estado da conversa (automação | humano) ───
+  const loadConvState = useCallback(async (phone) => {
+    if (!phone) return;
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    const res = await fetch(`/api/conversations/state?to=${encodeURIComponent(phone)}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (res.ok) setConvState(await res.json());
+  }, []);
+
+  async function resumeAutomation() {
+    if (!selected) return;
+    setResuming(true);
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    await fetch('/api/conversations/state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ to: selected.phone, state: 'automation' }),
+    });
+    await loadConvState(selected.phone);
+    setResuming(false);
   }
 
   function mediaTypeOf(file) {
@@ -267,7 +304,7 @@ export default function Chats() {
           mimeType: file.type,
           fileName: file.name,
           caption: text.trim() || undefined,
-          instanceName: instance.instance_name || instance.instanceName,
+          sender: 'human', // anexo enviado pelo dono também assume a conversa
         }),
       });
       if (!res.ok) {
@@ -387,6 +424,27 @@ export default function Chats() {
                 <p className="text-xs text-gray-400 truncate">{selected.phone}</p>
               </div>
             </button>
+            {/* Estado da conversa: automação | humano */}
+            {convState?.state === 'human' ? (
+              <div className="shrink-0 flex items-center gap-2">
+                <span title={convState.state_by ? 'Você assumiu esta conversa' : 'Assumida pelo celular'}
+                  className="flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
+                  👤 <span className="hidden sm:inline">você assumiu</span>
+                </span>
+                <button onClick={resumeAutomation} disabled={resuming}
+                  title="Devolver esta conversa para a automação"
+                  className="flex items-center gap-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg px-2.5 py-1.5 transition-colors disabled:opacity-50">
+                  {resuming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bot className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">Devolver p/ automação</span>
+                </button>
+              </div>
+            ) : (
+              <span title="A automação está respondendo esta conversa"
+                className="shrink-0 flex items-center gap-1 text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-1">
+                🤖 <span className="hidden sm:inline">automação</span>
+              </span>
+            )}
+
             {selected.contact && (
               <button
                 onClick={() => setEditContact(selected.contact)}

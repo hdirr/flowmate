@@ -71,17 +71,18 @@ async function runAutomations(event, payload) {
           const { data: { session } } = await supabase.auth.getSession();
           const token = session?.access_token;
           if (token) {
+            // Bot = automação. Se o humano assumiu a conversa, o envio leva 409 e não entrega.
             if (action.mediaUrl) {
               await fetch('/api/whatsapp/send-media', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ to: phone, mediaUrl: action.mediaUrl, mediaType: action.mediaType, mimeType: action.mimeType, fileName: action.fileName, caption: msg || undefined, instanceName: `flowmate-${cid()}` }),
+                body: JSON.stringify({ to: phone, mediaUrl: action.mediaUrl, mediaType: action.mediaType, mimeType: action.mimeType, fileName: action.fileName, caption: msg || undefined, sender: 'automation' }),
               }).catch(() => {});
             } else {
               await fetch('/api/whatsapp/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ to: phone, message: msg, instanceName: `flowmate-${cid()}` }),
+                body: JSON.stringify({ to: phone, message: msg, sender: 'automation' }),
               }).catch(() => {});
             }
           }
