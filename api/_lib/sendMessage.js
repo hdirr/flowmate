@@ -1,5 +1,6 @@
 import { adminClient, instanceNameFor, toWhatsAppNumber, jidFor } from './db.js';
 import { getOrCreateConversation, setConversationState, STATE } from './conversations.js';
+import { dispatchWebhook } from './webhooks.js';
 
 const EVOLUTION_URL = process.env.EVOLUTION_API_URL;
 const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY;
@@ -98,6 +99,21 @@ export async function sendMessage({ companyId, to, sender, actorUserId = null, c
   if (sender === STATE.HUMAN && conversation.state !== STATE.HUMAN) {
     await setConversationState(conversation.id, STATE.HUMAN, actorUserId);
   }
+
+  // ─── Espelha no webhook do tenant ───
+  // Vai o campo `sender` junto: o consumidor filtra o que é dele.
+  // (Se o n8n é quem envia, ele pode desmarcar message.sent e evitar o eco.)
+  await dispatchWebhook(companyId, 'message.sent', {
+    conversation_id: conversation.id,
+    contact_id: conversation.contact_id,
+    remote_jid: remoteJid,
+    to: number,
+    content: content || null,
+    media_url: media?.url || null,
+    message_id: messageId,
+    sender,
+    timestamp: Math.floor(Date.now() / 1000),
+  });
 
   return { ok: true, messageId, conversationId: conversation.id };
 }

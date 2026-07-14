@@ -6,10 +6,24 @@ import { db } from '../lib/store';
 import QRCode from 'react-qrcode-logo';
 
 const OUTBOUND_EVENTS = [
-  { value: 'contact.created', label: 'Contato criado' },
-  { value: 'lead.created',    label: 'Lead criado' },
-  { value: 'lead.moved',      label: 'Lead mudou de etapa' },
+  { value: 'message.received', label: 'Mensagem recebida',    hint: 'só quando a conversa está em automação' },
+  { value: 'message.sent',     label: 'Mensagem enviada',     hint: 'inclui o campo sender (human | automation)' },
+  { value: 'contact.created',  label: 'Contato criado' },
+  { value: 'lead.created',     label: 'Lead criado' },
+  { value: 'lead.moved',       label: 'Lead mudou de etapa' },
 ];
+
+// Normaliza URLs coladas do painel (ex: webhook.site dá a URL de VISUALIZAÇÃO,
+// que não recebe POST). Converte pra URL que de fato aceita a requisição.
+function normalizeWebhookUrl(raw) {
+  let url = (raw || '').trim();
+  if (!url) return '';
+  // https://webhook.site/#!/view/<uuid>[/...]  →  https://webhook.site/<uuid>
+  const m = url.match(/^(https?:\/\/[^/]+)\/#!\/view\/([0-9a-fA-F-]{36})/);
+  if (m) return `${m[1]}/${m[2]}`;
+  // Qualquer outra coisa com fragmento (#) não é endpoint — corta o fragmento
+  return url.split('#')[0];
+}
 
 const MODULES = {
   pipeline:    { label: 'Pipeline',    actions: { view_all: 'Ver todos', view_own: 'Ver próprios', create: 'Criar', edit: 'Editar', remove: 'Remover' } },
@@ -53,7 +67,9 @@ export default function Settings() {
   useEffect(() => { if (isAdmin) loadIntegrations(); }, [isAdmin]);
 
   async function saveIntegrations() {
-    await db.integrations.save({ webhook_url: integUrl.trim(), webhook_events: integEvents, enabled: true });
+    const url = normalizeWebhookUrl(integUrl);
+    setIntegUrl(url); // mostra a URL corrigida de volta pro usuário
+    await db.integrations.save({ webhook_url: url, webhook_events: integEvents, enabled: true });
     await loadIntegrations();
     setIntegSaved(true);
     setTimeout(() => setIntegSaved(false), 1800);
@@ -191,21 +207,32 @@ export default function Settings() {
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">URL de destino</label>
             <input value={integUrl} onChange={e => setIntegUrl(e.target.value)}
               placeholder="https://seu-n8n.com/webhook/flowmate"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+            {integUrl && normalizeWebhookUrl(integUrl) !== integUrl.trim() && (
+              <p className="text-xs text-amber-600 mt-1 mb-3">
+                ⚠️ Essa é uma URL de visualização (não recebe POST). Ao salvar, vamos corrigir para:{' '}
+                <code className="bg-amber-50 px-1 rounded">{normalizeWebhookUrl(integUrl)}</code>
+              </p>
+            )}
+            <div className="mb-4" />
 
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 block">Eventos a enviar <span className="text-gray-300 font-normal">(nenhum marcado = todos)</span></label>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Eventos a enviar</label>
+            <p className="text-xs text-gray-400 mb-2">Se <b>nenhum</b> for marcado, enviamos <b>todos</b>. Marcar um filtra os demais.</p>
             <div className="space-y-1.5 mb-4">
               {OUTBOUND_EVENTS.map(ev => {
                 const on = integEvents.includes(ev.value);
                 return (
                   <button key={ev.value} type="button" onClick={() => toggleIntegEvent(ev.value)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-sm text-left transition-colors
+                    className={`w-full flex items-start gap-3 px-3 py-2 rounded-lg border text-sm text-left transition-colors
                       ${on ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-                    <span className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${on ? 'bg-indigo-500' : 'border border-gray-300'}`}>
+                    <span className={`w-4 h-4 mt-0.5 rounded flex items-center justify-center shrink-0 ${on ? 'bg-indigo-500' : 'border border-gray-300'}`}>
                       {on && <Check className="w-3 h-3 text-white" />}
                     </span>
-                    <span className="flex-1">{ev.label}</span>
-                    <code className="text-xs text-gray-400">{ev.value}</code>
+                    <span className="flex-1 min-w-0">
+                      <span className="block">{ev.label}</span>
+                      {ev.hint && <span className="block text-xs text-gray-400 mt-0.5">{ev.hint}</span>}
+                    </span>
+                    <code className="text-xs text-gray-400 shrink-0">{ev.value}</code>
                   </button>
                 );
               })}
