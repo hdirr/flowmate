@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Login from './pages/Login';
+import SignUp from './pages/SignUp';
+import Landing from './pages/Landing';
 import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
 import Pipeline from './pages/Pipeline';
@@ -75,7 +77,19 @@ export default function App() {
     );
   }
 
-  if (status === 'unauthenticated') return <Login onLogin={handleLogin} />;
+  // Visitante anônimo: site público (landing / entrar / criar conta)
+  if (status === 'unauthenticated') {
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/entrar"      element={<Login onLogin={handleLogin} />} />
+          <Route path="/criar-conta" element={<SignUp onSignedIn={handleLogin} />} />
+          <Route path="/"            element={<Landing />} />
+          <Route path="*"            element={<Navigate to="/" />} />
+        </Routes>
+      </BrowserRouter>
+    );
+  }
   if (status === 'onboarding')     return <Onboarding onDone={handleOnboardingDone} onLogout={handleLogout} />;
 
   return (

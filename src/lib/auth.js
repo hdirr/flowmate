@@ -91,6 +91,23 @@ export const auth = {
     return { session: _session };
   },
 
+  // Cadastro self-service. Reusa o Supabase Auth existente. A empresa (tenant)
+  // é criada depois, no Onboarding (RPC register_company), quando o usuário
+  // entra sem company_id.
+  signUp: async (email, password) => {
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) return { error: error.message };
+
+    // Se a confirmação de e-mail estiver desligada no projeto, já vem sessão.
+    if (data.session) {
+      _session = data.session;
+      await auth._loadProfile(data.user.id);
+      return { session: _session };
+    }
+    // Confirmação de e-mail ligada: sem sessão até o usuário confirmar.
+    return { needsConfirmation: true };
+  },
+
   logout: async () => {
     await supabase.auth.signOut();
     _session = null; _profile = null; _perms = null;
