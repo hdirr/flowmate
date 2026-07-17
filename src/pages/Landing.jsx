@@ -78,18 +78,16 @@ export default function Landing() {
         )}
 
         {/* Toggle mensal/anual */}
-        {!isCustom && (
-          <div className="flex items-center justify-center gap-3 mb-8">
-            <span className={`text-sm ${!annual ? 'text-white' : 'text-gray-500'}`}>Mensal</span>
-            <button onClick={() => setAnnual(a => !a)}
-              className="relative w-12 h-6 rounded-full bg-gray-700 transition-colors">
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-blue-500 rounded-full transition-transform ${annual ? 'translate-x-6' : ''}`} />
-            </button>
-            <span className={`text-sm flex items-center gap-1.5 ${annual ? 'text-white' : 'text-gray-500'}`}>
-              Anual <span className="text-xs bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full">-23%</span>
-            </span>
-          </div>
-        )}
+        <div className="flex items-center justify-center gap-3 mb-8">
+          <span className={`text-sm ${!annual ? 'text-white' : 'text-gray-500'}`}>Mensal</span>
+          <button onClick={() => setAnnual(a => !a)}
+            className="relative w-12 h-6 rounded-full bg-gray-700 transition-colors">
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-blue-500 rounded-full transition-transform ${annual ? 'translate-x-6' : ''}`} />
+          </button>
+          <span className={`text-sm flex items-center gap-1.5 ${annual ? 'text-white' : 'text-gray-500'}`}>
+            Anual <span className="text-xs bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full">-23%</span>
+          </span>
+        </div>
 
         {/* Cards — 3 níveis */}
         <div className="grid md:grid-cols-3 gap-4 items-stretch">
