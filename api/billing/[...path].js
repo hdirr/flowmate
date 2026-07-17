@@ -42,7 +42,7 @@ async function start(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
   if (!ASAAS_KEY) return res.status(500).json({ error: 'gateway_nao_configurado' });
 
-  const { plan_level, plan_tier = 't1', plan_cycle = 'mensal', email, cpfCnpj } = req.body || {};
+  const { plan_level, plan_tier = 't1', plan_cycle = 'mensal', email, cpfCnpj, name } = req.body || {};
   if (!isValidPlan(plan_level, plan_tier)) return res.status(400).json({ error: 'plano_invalido' });
   if (!email) return res.status(400).json({ error: 'email_obrigatorio' });
   if (!cpfCnpj) return res.status(400).json({ error: 'cpf_cnpj_obrigatorio' });
@@ -51,9 +51,10 @@ async function start(req, res) {
   const admin = adminClient();
   const token = crypto.randomUUID();
 
-  // Cliente na Asaas
+  // Cliente na Asaas (nome real do comprador, quando informado)
   const c = await asaas('/customers', 'POST', {
-    name: email.split('@')[0], email, cpfCnpj: String(cpfCnpj).replace(/\D/g, ''),
+    name: (name && name.trim()) || email.split('@')[0],
+    email, cpfCnpj: String(cpfCnpj).replace(/\D/g, ''),
   });
   if (!c.ok) return res.status(400).json({ error: 'erro_cliente', detail: c.data });
 
