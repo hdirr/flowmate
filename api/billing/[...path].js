@@ -1,5 +1,6 @@
 import { adminClient, resolveUser } from '../_lib/db.js';
 import { billingFor, lineCap, isValidPlan } from '../_lib/plans.js';
+import crypto from 'crypto';
 
 const ASAAS_URL = process.env.ASAAS_API_URL || 'https://sandbox.asaas.com/api/v3';
 const ASAAS_KEY = process.env.ASAAS_API_KEY;
@@ -17,18 +18,135 @@ async function asaas(path, method, body) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+
   const segments = req.query?.path;
   let route = Array.isArray(segments) ? segments.join('/') : (segments || '');
   if (!route) route = (req.url || '').split('?')[0].replace(/^\/(api\/)?billing\//, '').replace(/\/+$/, '');
 
-  if (route === 'checkout')  return checkout(req, res);
-  if (route === 'webhook')   return webhook(req, res);
+  if (route === 'start')    return start(req, res);    // pagamento-primeiro (público)
+  if (route === 'status')   return status(req, res);   // consulta se já pagou (público)
+  if (route === 'activate') return activate(req, res); // cria a conta após pagar (público)
+  if (route === 'checkout') return checkout(req, res); // conta já existente (com login)
+  if (route === 'webhook')  return webhook(req, res);  // Asaas → ativa/atualiza
   return res.status(404).json({ error: 'not_found' });
 }
 
-// ─── POST /api/billing/checkout ───
-// Cria (ou reusa) o cliente na Asaas, cria a assinatura recorrente do plano
-// e devolve a URL do checkout hospedado (onde o cliente paga PIX/boleto/cartão).
+// ─── POST /api/billing/start ───
+// Pagamento ANTES da conta. Cria cliente+assinatura na Asaas, guarda um cadastro
+// pendente e devolve a URL do checkout hospedado.
+async function start(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
+  if (!ASAAS_KEY) return res.status(500).json({ error: 'gateway_nao_configurado' });
+
+  const { plan_level, plan_tier = 't1', plan_cycle = 'mensal', email, cpfCnpj } = req.body || {};
+  if (!isValidPlan(plan_level, plan_tier)) return res.status(400).json({ error: 'plano_invalido' });
+  if (!email) return res.status(400).json({ error: 'email_obrigatorio' });
+  if (!cpfCnpj) return res.status(400).json({ error: 'cpf_cnpj_obrigatorio' });
+
+  const plan = billingFor(plan_level, plan_tier, plan_cycle);
+  const admin = adminClient();
+  const token = crypto.randomUUID();
+
+  // Cliente na Asaas
+  const c = await asaas('/customers', 'POST', {
+    name: email.split('@')[0], email, cpfCnpj: String(cpfCnpj).replace(/\D/g, ''),
+  });
+  if (!c.ok) return res.status(400).json({ error: 'erro_cliente', detail: c.data });
+
+  // Assinatura. externalReference = token do cadastro pendente.
+  const firstDue = new Date(); firstDue.setDate(firstDue.getDate() + 1);
+  const sub = await asaas('/subscriptions', 'POST', {
+    customer: c.data.id,
+    billingType: 'UNDEFINED',
+    value: plan.value,
+    cycle: plan.asaasCycle,
+    nextDueDate: firstDue.toISOString().slice(0, 10),
+    description: `FlowMate — ${plan.label}`,
+    externalReference: token,
+    callback: { successUrl: `${APP_URL}/ativar?token=${token}`, autoRedirect: true },
+  });
+  if (!sub.ok) return res.status(400).json({ error: 'erro_assinatura', detail: sub.data });
+
+  await admin.from('pending_signups').insert({
+    signup_token: token, email,
+    plan_level, plan_tier, plan_cycle,
+    asaas_customer_id: c.data.id, asaas_subscription_id: sub.data.id,
+    status: 'pending',
+  });
+
+  const pays = await asaas(`/payments?subscription=${sub.data.id}`, 'GET');
+  const url = pays.data?.data?.[0]?.invoiceUrl || null;
+  if (!url) return res.status(502).json({ error: 'sem_url_checkout' });
+
+  return res.status(200).json({ url, token });
+}
+
+// ─── GET /api/billing/status?token=... ───
+async function status(req, res) {
+  const token = req.query?.token;
+  if (!token) return res.status(400).json({ error: 'token_obrigatorio' });
+  const admin = adminClient();
+  const { data } = await admin.from('pending_signups')
+    .select('status, email, plan_level, company_id').eq('signup_token', token).single();
+  if (!data) return res.status(404).json({ error: 'nao_encontrado' });
+  return res.status(200).json({
+    status: data.status, email: data.email, plan_level: data.plan_level,
+    activated: !!data.company_id,
+  });
+}
+
+// ─── POST /api/billing/activate ───
+// Depois de pago: cria a conta (sem confirmação de e-mail), a empresa e o plano ativo.
+async function activate(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
+  const { token, password, companyName, userName } = req.body || {};
+  if (!token || !password || !companyName || !userName) {
+    return res.status(400).json({ error: 'campos_incompletos' });
+  }
+  if (String(password).length < 6) return res.status(400).json({ error: 'senha_curta' });
+
+  const admin = adminClient();
+  const { data: pending } = await admin.from('pending_signups')
+    .select('*').eq('signup_token', token).single();
+  if (!pending) return res.status(404).json({ error: 'cadastro_nao_encontrado' });
+  if (pending.status !== 'paid') return res.status(402).json({ error: 'pagamento_pendente' });
+  if (pending.company_id) return res.status(409).json({ error: 'ja_ativado' });
+
+  // 1) Cria o usuário no Auth já confirmado (sem link de e-mail)
+  const { data: created, error: uErr } = await admin.auth.admin.createUser({
+    email: pending.email, password, email_confirm: true,
+  });
+  if (uErr) return res.status(400).json({ error: uErr.message });
+  const userId = created.user.id;
+
+  // 2) Cria empresa + perfil admin (reusa o RPC existente)
+  const { error: rpcErr } = await admin.rpc('register_company', {
+    p_company_name: companyName, p_user_id: userId, p_user_name: userName,
+  });
+  if (rpcErr) return res.status(400).json({ error: rpcErr.message });
+
+  // 3) Descobre a empresa criada e ativa o plano
+  const { data: prof } = await admin.from('user_profiles').select('company_id').eq('id', userId).single();
+  const companyId = prof?.company_id;
+  const end = new Date(); end.setMonth(end.getMonth() + 1);
+  await admin.from('companies').update({
+    plan_level: pending.plan_level, plan_tier: pending.plan_tier, plan_cycle: pending.plan_cycle,
+    subscription_status: 'active', line_cap: lineCap(pending.plan_tier),
+    asaas_customer_id: pending.asaas_customer_id,
+    asaas_subscription_id: pending.asaas_subscription_id,
+    current_period_end: end.toISOString(),
+  }).eq('id', companyId);
+
+  await admin.from('pending_signups').update({ company_id: companyId }).eq('signup_token', token);
+
+  return res.status(200).json({ ok: true, email: pending.email });
+}
+
+// ─── POST /api/billing/checkout ─── (conta já existente — trava de renovação)
 async function checkout(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
   if (!ASAAS_KEY) return res.status(500).json({ error: 'gateway_nao_configurado' });
@@ -37,95 +155,79 @@ async function checkout(req, res) {
   if (!who) return res.status(401).json({ error: 'unauthorized' });
 
   const admin = adminClient();
-  const { data: company } = await admin
-    .from('companies')
+  const { data: company } = await admin.from('companies')
     .select('id, name, plan_level, plan_tier, plan_cycle, asaas_customer_id')
     .eq('id', who.companyId).single();
   if (!company) return res.status(404).json({ error: 'empresa_nao_encontrada' });
 
-  const { cpfCnpj, email } = req.body || {};
-  const level = company.plan_level, tier = company.plan_tier, cycle = company.plan_cycle || 'mensal';
-  if (!isValidPlan(level, tier)) return res.status(400).json({ error: 'plano_invalido' });
+  const { cpfCnpj } = req.body || {};
+  if (!isValidPlan(company.plan_level, company.plan_tier)) return res.status(400).json({ error: 'plano_invalido' });
   if (!cpfCnpj) return res.status(400).json({ error: 'cpf_cnpj_obrigatorio' });
 
-  const plan = billingFor(level, tier, cycle);
+  const plan = billingFor(company.plan_level, company.plan_tier, company.plan_cycle || 'mensal');
 
-  // 1) Cliente na Asaas (cria se ainda não existe)
   let customerId = company.asaas_customer_id;
   if (!customerId) {
-    const c = await asaas('/customers', 'POST', {
-      name: company.name,
-      email: email || who.email || undefined,
-      cpfCnpj: String(cpfCnpj).replace(/\D/g, ''),
-    });
+    const c = await asaas('/customers', 'POST', { name: company.name, email: who.email, cpfCnpj: String(cpfCnpj).replace(/\D/g, '') });
     if (!c.ok) return res.status(400).json({ error: 'erro_cliente', detail: c.data });
     customerId = c.data.id;
     await admin.from('companies').update({ asaas_customer_id: customerId }).eq('id', company.id);
   }
 
-  // 2) Assinatura recorrente. externalReference = company_id (o webhook usa pra ativar o tenant).
-  const firstDue = new Date();
-  firstDue.setDate(firstDue.getDate() + 1);
+  const firstDue = new Date(); firstDue.setDate(firstDue.getDate() + 1);
   const sub = await asaas('/subscriptions', 'POST', {
-    customer: customerId,
-    billingType: 'UNDEFINED', // deixa o cliente escolher PIX / boleto / cartão no checkout
-    value: plan.value,
-    cycle: plan.asaasCycle,
-    nextDueDate: firstDue.toISOString().slice(0, 10),
-    description: `FlowMate — ${plan.label}`,
+    customer: customerId, billingType: 'UNDEFINED', value: plan.value, cycle: plan.asaasCycle,
+    nextDueDate: firstDue.toISOString().slice(0, 10), description: `FlowMate — ${plan.label}`,
     externalReference: company.id,
   });
   if (!sub.ok) return res.status(400).json({ error: 'erro_assinatura', detail: sub.data });
+  await admin.from('companies').update({ asaas_subscription_id: sub.data.id }).eq('id', company.id);
 
-  await admin.from('companies')
-    .update({ asaas_subscription_id: sub.data.id, subscription_status: 'pending' })
-    .eq('id', company.id);
-
-  // 3) Pega a 1ª cobrança e devolve a URL do checkout hospedado
   const pays = await asaas(`/payments?subscription=${sub.data.id}`, 'GET');
-  const first = pays.data?.data?.[0];
-  const url = first?.invoiceUrl || first?.bankSlipUrl || null;
-  if (!url) return res.status(502).json({ error: 'sem_url_checkout', detail: pays.data });
-
+  const url = pays.data?.data?.[0]?.invoiceUrl || null;
+  if (!url) return res.status(502).json({ error: 'sem_url_checkout' });
   return res.status(200).json({ url });
 }
 
 // ─── POST /api/billing/webhook ───
-// A Asaas chama aqui quando o pagamento muda de estado. Autentica pelo token
-// que você configura no painel da Asaas (header asaas-access-token).
 async function webhook(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
-
   if (ASAAS_WEBHOOK_TOKEN) {
-    const token = req.headers['asaas-access-token'];
-    if (token !== ASAAS_WEBHOOK_TOKEN) return res.status(401).json({ error: 'unauthorized' });
+    if (req.headers['asaas-access-token'] !== ASAAS_WEBHOOK_TOKEN) return res.status(401).json({ error: 'unauthorized' });
   }
 
   const event = req.body?.event;
-  const payment = req.body?.payment;
-  const companyId = payment?.externalReference;
-  if (!companyId) return res.status(200).json({ ok: true }); // nada a fazer
+  const ref = req.body?.payment?.externalReference;
+  if (!ref) return res.status(200).json({ ok: true });
 
   const admin = adminClient();
-
-  // Confirmou/recebeu → ativa. Vencido → past_due. Estornado/deletado → canceled.
   let status = null;
   if (['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED'].includes(event)) status = 'active';
-  else if (['PAYMENT_OVERDUE'].includes(event)) status = 'past_due';
+  else if (event === 'PAYMENT_OVERDUE') status = 'past_due';
   else if (['PAYMENT_DELETED', 'PAYMENT_REFUNDED', 'PAYMENT_CHARGEBACK_REQUESTED'].includes(event)) status = 'canceled';
+  if (!status) return res.status(200).json({ ok: true });
 
-  if (status) {
-    const patch = { subscription_status: status };
-    if (status === 'active') {
-      // libera o teto de linhas da faixa e marca o fim do período
-      const { data: company } = await admin.from('companies').select('plan_tier').eq('id', companyId).single();
-      patch.line_cap = lineCap(company?.plan_tier);
-      const end = new Date();
-      end.setMonth(end.getMonth() + 1);
-      patch.current_period_end = end.toISOString();
-    }
-    await admin.from('companies').update(patch).eq('id', companyId);
+  // Caso 1: cadastro pendente (externalReference = signup_token)
+  const { data: pending } = await admin.from('pending_signups').select('company_id').eq('signup_token', ref).single();
+  if (pending) {
+    await admin.from('pending_signups').update({ status: status === 'active' ? 'paid' : status }).eq('signup_token', ref);
+    // Se já virou empresa (renovação), reflete na empresa também
+    if (pending.company_id) await applyCompanyStatus(admin, pending.company_id, status);
+    return res.status(200).json({ ok: true });
   }
 
+  // Caso 2: empresa existente (externalReference = company_id)
+  await applyCompanyStatus(admin, ref, status);
   return res.status(200).json({ ok: true });
+}
+
+async function applyCompanyStatus(admin, companyId, status) {
+  const patch = { subscription_status: status };
+  if (status === 'active') {
+    const { data: company } = await admin.from('companies').select('plan_tier').eq('id', companyId).single();
+    patch.line_cap = lineCap(company?.plan_tier);
+    const end = new Date(); end.setMonth(end.getMonth() + 1);
+    patch.current_period_end = end.toISOString();
+  }
+  await admin.from('companies').update(patch).eq('id', companyId);
 }

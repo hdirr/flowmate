@@ -128,7 +128,7 @@ export default function Landing() {
                     ))}
                   </ul>
 
-                  <Link to={`/criar-conta?plan=${level.id}&tier=${tierId}&cycle=${annual ? 'anual' : 'mensal'}`}
+                  <Link to={`/assinar?plan=${level.id}&cycle=${annual ? 'anual' : 'mensal'}`}
                     className={`mt-6 w-full text-center font-semibold py-2.5 rounded-xl text-sm transition-colors
                       ${level.highlight ? 'bg-blue-600 hover:bg-blue-500' : 'bg-gray-800 hover:bg-gray-700'}`}>
                     Assinar {level.name}

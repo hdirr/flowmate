@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Login from './pages/Login';
-import SignUp from './pages/SignUp';
 import Landing from './pages/Landing';
+import Checkout from './pages/Checkout';
+import Activate from './pages/Activate';
 import Onboarding from './pages/Onboarding';
 import Billing from './pages/Billing';
 import Dashboard from './pages/Dashboard';
@@ -84,10 +85,11 @@ export default function App() {
     return (
       <BrowserRouter>
         <Routes>
-          <Route path="/entrar"      element={<Login onLogin={handleLogin} />} />
-          <Route path="/criar-conta" element={<SignUp onSignedIn={handleLogin} />} />
-          <Route path="/"            element={<Landing />} />
-          <Route path="*"            element={<Navigate to="/" />} />
+          <Route path="/entrar"  element={<Login onLogin={handleLogin} />} />
+          <Route path="/assinar" element={<Checkout />} />
+          <Route path="/ativar"  element={<Activate />} />
+          <Route path="/"        element={<Landing />} />
+          <Route path="*"        element={<Navigate to="/" />} />
         </Routes>
       </BrowserRouter>
     );
