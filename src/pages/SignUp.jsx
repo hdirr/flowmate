@@ -16,6 +16,7 @@ export default function SignUp({ onSignedIn }) {
 
   // Plano escolhido na landing (?plan=&cycle=) — mostrado como confirmação
   const level = LEVELS.find(l => l.id === params.get('plan'));
+  const tierId = params.get('tier') || 't1';
   const cycle = params.get('cycle');
 
   async function submit(e) {
@@ -25,7 +26,7 @@ export default function SignUp({ onSignedIn }) {
     // Guarda o plano escolhido pra aplicar na empresa depois do onboarding
     if (level) {
       localStorage.setItem('flowmate:pendingPlan', JSON.stringify({
-        plan_level: level.id, plan_tier: tier?.id || null, plan_cycle: cycle || 'mensal',
+        plan_level: level.id, plan_tier: tierId, plan_cycle: cycle || 'mensal',
       }));
     }
     setLoading(true);
