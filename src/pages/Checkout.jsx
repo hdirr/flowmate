@@ -21,6 +21,8 @@ export default function Checkout() {
     setError('');
     if (!email.trim() || !cpfCnpj.trim()) { setError('Preencha e-mail e CPF/CNPJ.'); return; }
     setLoading(true);
+    // Abre a aba do pagamento JÁ no clique (evita bloqueio de pop-up)
+    const payTab = window.open('', '_blank');
     const res = await fetch('/api/billing/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -31,13 +33,18 @@ export default function Checkout() {
     });
     const data = await res.json();
     if (!res.ok || !data.url) {
+      if (payTab) payTab.close();
       setError(data.error === 'gateway_nao_configurado'
         ? 'Pagamento ainda não está configurado. Tente novamente em instantes.'
         : 'Não foi possível iniciar o pagamento. Confira o CPF/CNPJ e tente de novo.');
       setLoading(false);
       return;
     }
-    window.location.href = data.url; // checkout hospedado da Asaas
+    // Pagamento numa aba nova; esta aba vai pra tela de espera que atualiza sozinha.
+    localStorage.setItem('flowmate:payUrl', data.url); // fallback caso o pop-up seja bloqueado
+    if (payTab) payTab.location.href = data.url;
+    else window.open(data.url, '_blank');
+    window.location.href = `/ativar?token=${data.token}`;
   }
 
   return (

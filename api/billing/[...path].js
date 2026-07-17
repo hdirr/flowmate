@@ -67,7 +67,6 @@ async function start(req, res) {
     nextDueDate: firstDue.toISOString().slice(0, 10),
     description: `FlowMate — ${plan.label}`,
     externalReference: token,
-    callback: { successUrl: `${APP_URL}/ativar?token=${token}`, autoRedirect: true },
   });
   if (!sub.ok) return res.status(400).json({ error: 'erro_assinatura', detail: sub.data });
 

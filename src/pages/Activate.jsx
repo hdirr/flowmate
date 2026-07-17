@@ -14,6 +14,7 @@ export default function Activate() {
   const [form, setForm] = useState({ companyName: '', userName: '', password: '' });
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
+  const payUrl = typeof window !== 'undefined' ? localStorage.getItem('flowmate:payUrl') : null;
 
   const check = useCallback(async () => {
     if (!token) { setState('notoken'); return; }
@@ -76,6 +77,12 @@ export default function Activate() {
                 Esta tela atualiza sozinha — pode deixá-la aberta.
               </p>
               <div className="flex justify-center mt-4"><Loader2 className="w-5 h-5 animate-spin text-gray-600" /></div>
+              {payUrl && (
+                <a href={payUrl} target="_blank" rel="noreferrer"
+                  className="inline-block mt-4 text-sm text-blue-400 hover:underline">
+                  Não abriu? Abrir o pagamento
+                </a>
+              )}
             </div>
           )}
 
