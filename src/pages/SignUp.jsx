@@ -23,6 +23,12 @@ export default function SignUp({ onSignedIn }) {
     e.preventDefault();
     setError('');
     if (form.password.length < 6) { setError('A senha precisa de pelo menos 6 caracteres.'); return; }
+    // Guarda o plano escolhido pra aplicar na empresa depois do onboarding
+    if (level) {
+      localStorage.setItem('flowmate:pendingPlan', JSON.stringify({
+        plan_level: level.id, plan_tier: tier?.id || null, plan_cycle: cycle || 'mensal',
+      }));
+    }
     setLoading(true);
     const result = await auth.signUp(form.email.trim(), form.password);
     if (result.error) { setError(result.error); setLoading(false); return; }

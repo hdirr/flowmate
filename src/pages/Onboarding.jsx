@@ -33,6 +33,24 @@ export default function Onboarding({ onDone, onLogout }) {
       setLoading(false);
       return;
     }
+
+    // Aplica o plano escolhido na landing (fica pendente até o pagamento)
+    try {
+      const pending = JSON.parse(localStorage.getItem('flowmate:pendingPlan') || 'null');
+      if (pending) {
+        const { data: prof } = await supabase.from('user_profiles').select('company_id').eq('id', user.id).single();
+        if (prof?.company_id) {
+          await supabase.from('companies').update({
+            plan_level: pending.plan_level,
+            plan_tier: pending.plan_tier,
+            plan_cycle: pending.plan_cycle,
+            subscription_status: 'pending',
+          }).eq('id', prof.company_id);
+        }
+        localStorage.removeItem('flowmate:pendingPlan');
+      }
+    } catch { /* segue mesmo se falhar; o Billing trata plano ausente */ }
+
     onDone();
   }
 

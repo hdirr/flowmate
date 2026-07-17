@@ -22,7 +22,7 @@ export async function resolveUser(authHeader) {
   const { data: profile } = await admin
     .from('user_profiles').select('company_id').eq('id', user.id).single();
   if (!profile?.company_id) return null;
-  return { userId: user.id, companyId: profile.company_id };
+  return { userId: user.id, companyId: profile.company_id, email: user.email };
 }
 
 // Resolve o company_id a partir da API key do tenant. Retorna companyId ou null.

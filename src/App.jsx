@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Landing from './pages/Landing';
 import Onboarding from './pages/Onboarding';
+import Billing from './pages/Billing';
 import Dashboard from './pages/Dashboard';
 import Pipeline from './pages/Pipeline';
 import Contacts from './pages/Contacts';
@@ -19,6 +20,7 @@ import { supabase } from './lib/supabase';
 export default function App() {
   const [status, setStatus] = useState('loading'); // loading | unauthenticated | onboarding | ready
   const [profile, setProfile] = useState(null);
+  const [gateKey, setGateKey] = useState(0); // força reavaliar a trava de assinatura
 
   useEffect(() => {
     // Inicializa sessão ao carregar
@@ -91,6 +93,11 @@ export default function App() {
     );
   }
   if (status === 'onboarding')     return <Onboarding onDone={handleOnboardingDone} onLogout={handleLogout} />;
+
+  // Trava dura: sem assinatura ativa, a ferramenta não abre.
+  if (status === 'ready' && !auth.subscriptionActive()) {
+    return <Billing key={gateKey} onLogout={handleLogout} onActivated={() => setGateKey(k => k + 1)} />;
+  }
 
   return (
     <BrowserRouter>

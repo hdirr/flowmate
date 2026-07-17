@@ -40,6 +40,7 @@ export const DEFAULT_PERMISSIONS = {
 let _session = null;
 let _profile  = null;
 let _perms    = null;
+let _company  = null;
 
 export const auth = {
   // Inicializa sessão a partir do Supabase (chame no boot da app)
@@ -60,6 +61,16 @@ export const auth = {
       .single();
 
     _profile = profile;
+
+    if (profile) {
+      // Carrega a assinatura da empresa (trava de acesso)
+      const { data: company } = await supabase
+        .from('companies')
+        .select('id, name, subscription_status, plan_level, plan_tier, plan_cycle, line_cap')
+        .eq('id', profile.company_id)
+        .single();
+      _company = company || null;
+    }
 
     if (profile) {
       const { data: permsRows } = await supabase
@@ -110,11 +121,29 @@ export const auth = {
 
   logout: async () => {
     await supabase.auth.signOut();
-    _session = null; _profile = null; _perms = null;
+    _session = null; _profile = null; _perms = null; _company = null;
   },
 
   session: () => _session,
   profile: () => _profile,
+  company: () => _company,
+
+  // Trava de acesso: a ferramenta só abre com assinatura ativa.
+  // Falha-aberto quando o status é desconhecido (pré-migração ou empresa não carregou),
+  // pra não trancar clientes existentes por engano. Só bloqueia status explícito não-ativo.
+  subscriptionActive: () => {
+    const s = _company?.subscription_status;
+    if (s === undefined || s === null) return true;
+    return s === 'active';
+  },
+  reloadCompany: async () => {
+    if (!_profile?.company_id) return null;
+    const { data } = await supabase.from('companies')
+      .select('id, name, subscription_status, plan_level, plan_tier, plan_cycle, line_cap')
+      .eq('id', _profile.company_id).single();
+    _company = data || null;
+    return _company;
+  },
 
   can: (module, action) => {
     if (!_profile) return false;
