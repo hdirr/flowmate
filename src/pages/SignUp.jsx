@@ -1,16 +1,23 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { auth } from '../lib/auth';
-import { UserPlus, Eye, EyeOff, MailCheck } from 'lucide-react';
+import { LEVELS, TIERS } from '../lib/pricing';
+import { UserPlus, Eye, EyeOff, MailCheck, Check } from 'lucide-react';
 
 // Cadastro self-service. Cria o usuário no Supabase Auth (reuso) e deixa o
 // Onboarding criar a empresa (tenant) no primeiro acesso.
 export default function SignUp({ onSignedIn }) {
+  const [params] = useSearchParams();
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+
+  // Plano escolhido na landing (?plan=&tier=&cycle=) — mostrado como confirmação
+  const level = LEVELS.find(l => l.id === params.get('plan'));
+  const tier = TIERS.find(t => t.id === params.get('tier'));
+  const cycle = params.get('cycle');
 
   async function submit(e) {
     e.preventDefault();
@@ -42,6 +49,16 @@ export default function SignUp({ onSignedIn }) {
 
   return (
     <Shell>
+      {level && (
+        <div className="mb-4 flex items-center gap-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl px-3 py-2.5">
+          <Check className="w-4 h-4 text-blue-400 shrink-0" />
+          <p className="text-sm text-gray-300">
+            Plano <b className="text-white">{level.name}</b>
+            {tier && <> · {tier.label}</>}
+            {cycle && <> · {cycle}</>}
+          </p>
+        </div>
+      )}
       <form onSubmit={submit} className="space-y-4">
         <div>
           <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5 block">E-mail</label>

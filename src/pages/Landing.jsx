@@ -27,9 +27,9 @@ export default function Landing() {
         </div>
         <div className="flex items-center gap-2">
           <Link to="/entrar" className="text-sm text-gray-300 hover:text-white px-4 py-2">Entrar</Link>
-          <Link to="/criar-conta" className="text-sm font-semibold bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg transition-colors">
+          <a href="#planos" className="text-sm font-semibold bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg transition-colors">
             Criar conta
-          </Link>
+          </a>
         </div>
       </header>
 
@@ -43,14 +43,10 @@ export default function Landing() {
         </h1>
         <p className="text-gray-400 text-lg mt-5">
           Inbox unificada, funil de vendas e API aberta pra você trazer sua própria automação.
-          Cobrança por linha, <b className="text-gray-200">sem fidelidade</b>.
         </p>
         <div className="flex items-center justify-center gap-3 mt-8">
-          <Link to="/criar-conta" className="bg-blue-600 hover:bg-blue-500 font-semibold px-6 py-3 rounded-xl flex items-center gap-2 transition-colors">
-            Começar agora <ArrowRight className="w-4 h-4" />
-          </Link>
-          <a href="#planos" className="border border-gray-700 hover:bg-gray-900 font-medium px-6 py-3 rounded-xl transition-colors">
-            Ver planos
+          <a href="#planos" className="bg-blue-600 hover:bg-blue-500 font-semibold px-6 py-3 rounded-xl flex items-center gap-2 transition-colors">
+            Escolher meu plano <ArrowRight className="w-4 h-4" />
           </a>
         </div>
       </section>
@@ -155,10 +151,10 @@ export default function Landing() {
                     ))}
                   </ul>
 
-                  <Link to="/criar-conta"
+                  <Link to={`/criar-conta?plan=${level.id}&tier=${tierId}&cycle=${annual ? 'anual' : 'mensal'}`}
                     className={`mt-6 w-full text-center font-semibold py-2.5 rounded-xl text-sm transition-colors
                       ${level.highlight ? 'bg-blue-600 hover:bg-blue-500' : 'bg-gray-800 hover:bg-gray-700'}`}>
-                    Criar conta
+                    Assinar {level.name}
                   </Link>
                 </div>
               );
@@ -177,7 +173,7 @@ export default function Landing() {
           <span>© {new Date().getFullYear()} FlowMate</span>
           <div className="flex items-center gap-4">
             <Link to="/entrar" className="hover:text-gray-300">Entrar</Link>
-            <Link to="/criar-conta" className="hover:text-gray-300">Criar conta</Link>
+            <a href="#planos" className="hover:text-gray-300">Planos</a>
           </div>
         </div>
       </footer>
