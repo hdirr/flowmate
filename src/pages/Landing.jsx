@@ -5,14 +5,14 @@ import {
   ArrowRight, Sparkles, X,
 } from 'lucide-react';
 import {
-  PUBLISHED, TIERS, LEVELS, monthlyPrice, annualMonthly, formatBRL,
+  PUBLISHED, TIERS, AVAILABLE_TIERS, LEVELS, monthlyPrice, annualMonthly, formatBRL,
 } from '../lib/pricing';
 
 // WhatsApp do Agadir para o fluxo "16+" e contato (troque quando quiser)
 const CONTACT_WHATSAPP = '553194008467';
 
 export default function Landing() {
-  const [tierId, setTierId] = useState('t1');
+  const [tierId, setTierId] = useState(AVAILABLE_TIERS[0]);
   const [annual, setAnnual] = useState(false);
   const tier = TIERS.find(t => t.id === tierId);
   const isCustom = !!tier?.contact;
@@ -71,9 +71,9 @@ export default function Landing() {
       {/* ── Planos ── */}
       <section id="planos" className="max-w-5xl mx-auto px-5 py-12">
         <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold">Escolha por linha</h2>
+          <h2 className="text-3xl font-bold">Escolha seu plano</h2>
           <p className="text-gray-400 mt-2">
-            Cada número de WhatsApp conectado é uma <b className="text-gray-200">linha</b>. Escolha a faixa e o nível de recurso.
+            Conecte seu número de WhatsApp e escolha o nível de recurso.
           </p>
         </div>
 
@@ -82,18 +82,6 @@ export default function Landing() {
             ⚠️ Prévia — preços ainda não finais. Não representa oferta comercial.
           </div>
         )}
-
-        {/* Seletor de faixa */}
-        <div className="flex flex-wrap items-center justify-center gap-2 mb-6">
-          <span className="text-sm text-gray-500 mr-1">Quantas linhas?</span>
-          {TIERS.map(t => (
-            <button key={t.id} onClick={() => setTierId(t.id)}
-              className={`px-4 py-2 rounded-xl text-sm font-medium border transition-colors
-                ${tierId === t.id ? 'bg-blue-600 border-blue-600 text-white' : 'bg-gray-900 border-gray-700 text-gray-300 hover:bg-gray-800'}`}>
-              {t.label}
-            </button>
-          ))}
-        </div>
 
         {/* Toggle mensal/anual */}
         {!isCustom && (
@@ -109,9 +97,14 @@ export default function Landing() {
           </div>
         )}
 
-        {/* Cards — 3 níveis da faixa escolhida, OU formulário 16+ */}
+        {/* Cards — 3 níveis (Faixa 1, 1 número), OU formulário "mais linhas" */}
         {isCustom ? (
-          <CustomContact />
+          <div>
+            <CustomContact />
+            <button onClick={() => setTierId('t1')} className="mt-4 mx-auto block text-sm text-gray-400 hover:text-white">
+              ← Voltar aos planos
+            </button>
+          </div>
         ) : (
           <div className="grid md:grid-cols-3 gap-4 items-stretch">
             {LEVELS.map(level => {
@@ -162,9 +155,14 @@ export default function Landing() {
           </div>
         )}
 
-        <p className="text-center text-xs text-gray-600 mt-6">
-          A faixa define o teto de linhas (números de WhatsApp) que a conta pode conectar. Precisa de mais? É só subir de faixa.
-        </p>
+        {!isCustom && (
+          <p className="text-center text-sm text-gray-500 mt-8">
+            Precisa de mais de um número de WhatsApp?{' '}
+            <button onClick={() => setTierId('custom')} className="text-blue-400 hover:underline font-medium">
+              Fale com a gente
+            </button>
+          </p>
+        )}
       </section>
 
       {/* ── Rodapé ── */}

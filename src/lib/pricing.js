@@ -13,6 +13,10 @@ export const PUBLISHED = false; // vira true só quando o Agadir liberar preço 
 // Desconto do plano anual (aplicado sobre 12x o mensal)
 export const ANNUAL_DISCOUNT = 0.23; // ~23%
 
+// Faixas à venda hoje. Só Faixa 1 (1 número) até o multi-linha existir.
+// Quando o multi-linha ficar pronto, adicione 't2', 't3' aqui.
+export const AVAILABLE_TIERS = ['t1'];
+
 // Faixas: unidade cobrada = LINHA (número de WhatsApp conectado)
 export const TIERS = [
   { id: 't1', label: '1 a 5 linhas',   min: 1,  max: 5  },
