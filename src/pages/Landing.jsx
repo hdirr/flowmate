@@ -1,21 +1,15 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Check, Zap, MessageCircle, KanbanSquare, Webhook, ShieldCheck,
-  ArrowRight, Sparkles, X,
+  Check, Zap, MessageCircle, Webhook, ShieldCheck, ArrowRight, Sparkles,
 } from 'lucide-react';
 import {
-  PUBLISHED, TIERS, AVAILABLE_TIERS, LEVELS, monthlyPrice, annualMonthly, formatBRL,
+  PUBLISHED, AVAILABLE_TIERS, LEVELS, monthlyPrice, annualMonthly, formatBRL,
 } from '../lib/pricing';
 
-// WhatsApp do Agadir para o fluxo "16+" e contato (troque quando quiser)
-const CONTACT_WHATSAPP = '553194008467';
-
 export default function Landing() {
-  const [tierId, setTierId] = useState(AVAILABLE_TIERS[0]);
+  const tierId = AVAILABLE_TIERS[0]; // um plano por CRM (um número). Multi-linha vem depois.
   const [annual, setAnnual] = useState(false);
-  const tier = TIERS.find(t => t.id === tierId);
-  const isCustom = !!tier?.contact;
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -97,16 +91,8 @@ export default function Landing() {
           </div>
         )}
 
-        {/* Cards — 3 níveis (Faixa 1, 1 número), OU formulário "mais linhas" */}
-        {isCustom ? (
-          <div>
-            <CustomContact />
-            <button onClick={() => setTierId('t1')} className="mt-4 mx-auto block text-sm text-gray-400 hover:text-white">
-              ← Voltar aos planos
-            </button>
-          </div>
-        ) : (
-          <div className="grid md:grid-cols-3 gap-4 items-stretch">
+        {/* Cards — 3 níveis */}
+        <div className="grid md:grid-cols-3 gap-4 items-stretch">
             {LEVELS.map(level => {
               const m = monthlyPrice(level.id, tierId);
               const priceShown = annual ? annualMonthly(level.id, tierId) : m;
@@ -152,17 +138,7 @@ export default function Landing() {
                 </div>
               );
             })}
-          </div>
-        )}
-
-        {!isCustom && (
-          <p className="text-center text-sm text-gray-500 mt-8">
-            Precisa de mais de um número de WhatsApp?{' '}
-            <button onClick={() => setTierId('custom')} className="text-blue-400 hover:underline font-medium">
-              Fale com a gente
-            </button>
-          </p>
-        )}
+        </div>
       </section>
 
       {/* ── Rodapé ── */}
@@ -175,39 +151,6 @@ export default function Landing() {
           </div>
         </div>
       </footer>
-    </div>
-  );
-}
-
-// Fluxo "16+": nunca vai pro checkout automático — abre triagem com o Agadir.
-function CustomContact() {
-  const [form, setForm] = useState({ name: '', company: '', lines: '', phone: '' });
-  const msg = encodeURIComponent(
-    `Olá! Quero o FlowMate para ${form.lines || '16+'} linhas.\n` +
-    `Nome: ${form.name}\nEmpresa: ${form.company}\nWhatsApp: ${form.phone}`
-  );
-  const waLink = `https://wa.me/${CONTACT_WHATSAPP}?text=${msg}`;
-
-  return (
-    <div className="max-w-lg mx-auto bg-gray-900 border border-gray-800 rounded-2xl p-6">
-      <h3 className="text-lg font-bold">Mais de 16 linhas? Vamos conversar.</h3>
-      <p className="text-sm text-gray-400 mt-1 mb-5">
-        Acima de 16 linhas montamos um plano sob medida. Preencha e a gente te chama.
-      </p>
-      <div className="grid grid-cols-2 gap-3">
-        <input placeholder="Seu nome" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-          className="col-span-2 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
-        <input placeholder="Empresa" value={form.company} onChange={e => setForm(f => ({ ...f, company: e.target.value }))}
-          className="bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
-        <input placeholder="Nº de linhas" value={form.lines} onChange={e => setForm(f => ({ ...f, lines: e.target.value }))}
-          className="bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
-        <input placeholder="Seu WhatsApp" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-          className="col-span-2 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
-      </div>
-      <a href={waLink} target="_blank" rel="noreferrer"
-        className="mt-5 w-full inline-flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 font-semibold py-2.5 rounded-xl text-sm transition-colors">
-        <MessageCircle className="w-4 h-4" /> Falar com o time
-      </a>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { auth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
-import { LEVELS, TIERS, monthlyPrice, annualMonthly, formatBRL } from '../lib/pricing';
+import { LEVELS, monthlyPrice, annualMonthly, formatBRL } from '../lib/pricing';
 import { CreditCard, LogOut, RefreshCw, ShieldCheck, Loader2 } from 'lucide-react';
 
 // Trava dura: sem assinatura ativa, a ferramenta não abre. Esta tela conduz ao
@@ -14,11 +14,11 @@ export default function Billing({ onLogout, onActivated }) {
   const [error, setError] = useState('');
 
   const level = LEVELS.find(l => l.id === company?.plan_level);
-  const tier = TIERS.find(t => t.id === company?.plan_tier);
+  const tierId = company?.plan_tier || 't1';
   const cycle = company?.plan_cycle || 'mensal';
   const annual = cycle === 'anual';
-  const price = level && tier
-    ? (annual ? annualMonthly(level.id, tier.id) : monthlyPrice(level.id, tier.id))
+  const price = level
+    ? (annual ? annualMonthly(level.id, tierId) : monthlyPrice(level.id, tierId))
     : null;
 
   const pastDue = company?.subscription_status === 'past_due';
@@ -75,9 +75,7 @@ export default function Billing({ onLogout, onActivated }) {
           <div className="flex items-center justify-between pb-4 mb-4 border-b border-gray-800">
             <div>
               <p className="text-white font-semibold">{level ? level.name : 'Plano'}</p>
-              <p className="text-xs text-gray-500">
-                {tier ? tier.label : '—'} · {annual ? 'anual' : 'mensal'}
-              </p>
+              <p className="text-xs text-gray-500">{annual ? 'anual' : 'mensal'}</p>
             </div>
             <div className="text-right">
               {price != null ? (

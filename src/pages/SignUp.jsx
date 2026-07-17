@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { auth } from '../lib/auth';
-import { LEVELS, TIERS } from '../lib/pricing';
+import { LEVELS } from '../lib/pricing';
 import { UserPlus, Eye, EyeOff, MailCheck, Check } from 'lucide-react';
 
 // Cadastro self-service. Cria o usuário no Supabase Auth (reuso) e deixa o
@@ -14,9 +14,8 @@ export default function SignUp({ onSignedIn }) {
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
 
-  // Plano escolhido na landing (?plan=&tier=&cycle=) — mostrado como confirmação
+  // Plano escolhido na landing (?plan=&cycle=) — mostrado como confirmação
   const level = LEVELS.find(l => l.id === params.get('plan'));
-  const tier = TIERS.find(t => t.id === params.get('tier'));
   const cycle = params.get('cycle');
 
   async function submit(e) {
@@ -60,7 +59,6 @@ export default function SignUp({ onSignedIn }) {
           <Check className="w-4 h-4 text-blue-400 shrink-0" />
           <p className="text-sm text-gray-300">
             Plano <b className="text-white">{level.name}</b>
-            {tier && <> · {tier.label}</>}
             {cycle && <> · {cycle}</>}
           </p>
         </div>
