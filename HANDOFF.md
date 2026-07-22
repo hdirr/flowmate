@@ -3,6 +3,9 @@
 > Documento vivo pra retomar o projeto em sessão nova, com contexto zerado.
 > **Sem segredos aqui** — chaves ficam nas env vars do Vercel / painéis.
 > Última atualização: 2026-07-17.
+>
+> **PRÓXIMO OBJETIVO (a fazer):** criar uma **integração para equipe de marketing** dentro do produto
+> (o usuário quer "incorporar" isso ao FlowMate). Ainda não especificado — levantar requisitos primeiro.
 
 ## O que é
 FlowMate — **CRM de WhatsApp com automação**, vendido como SaaS pelo Agadir direto ao cliente final.
@@ -67,6 +70,42 @@ Landing → "Assinar {nível}"
 
 ---
 
+## RUNBOOK — onboarding manual de um cliente (empresa)
+Usado quando o cliente **não** passa pelo fluxo de pagamento (ex: parceria, cobrança offline).
+Feito no **Supabase** (dashboard + SQL Editor). Claude não tem `service_role` nas ferramentas, então
+**quem executa é o Agadir**. Conectar o WhatsApp exige escanear QR com o celular da clínica.
+
+```sql
+-- 1) Criar o login: Supabase > Authentication > Users > Add user (marcar "Auto Confirm User"). Copiar o UUID.
+
+-- 2) Criar a empresa
+select register_company('<Nome da Empresa>', '<UUID_DO_DONO>', '<Nome do Dono>');
+
+-- 3) Descobrir o company_id
+select company_id from user_profiles where id = '<UUID_DO_DONO>';
+
+-- 4) Ativar assinatura + plano (Pro libera API/webhooks — necessário se usa agente externo)
+update companies set
+  subscription_status = 'active',
+  plan_level = 'pro', plan_tier = 't1', plan_cycle = 'mensal', line_cap = 5
+where id = '<COMPANY_ID>';
+
+-- 5) Criar/atualizar integração (gera api_key e webhook_secret automaticamente)
+insert into company_integrations (company_id, webhook_url, webhook_events, enabled)
+values ('<COMPANY_ID>', '<URL_DO_WEBHOOK_DO_CLIENTE>', array['message.received'], true)
+on conflict (company_id) do update set
+  webhook_url = excluded.webhook_url, webhook_events = excluded.webhook_events, enabled = true;
+
+-- 6) Pegar as credenciais pra entregar ao cliente
+select company_id, api_key, webhook_secret from company_integrations where company_id = '<COMPANY_ID>';
+```
+7) **WhatsApp:** o dono loga no FlowMate → Configurações → WhatsApp → Conectar → escaneia o QR.
+
+### Cliente em andamento
+- **Clínica do Rafael** (parceria **Atimos**): atendida por **agente de IA externo** via n8n em
+  `https://n8n.atimosbrasil.com/webhook/flowmate`, assinando **só `message.received`**.
+  Fluxo: webhook assinado → n8n → agente → responde via `POST /v1/messages` (respeita o 409 se humano assumir).
+
 ## PENDÊNCIAS / PRÓXIMOS PASSOS
 1. **Ir pra produção no Asaas:** hoje é sandbox. Trocar `ASAAS_API_URL` → `https://api.asaas.com/v3` + chave de produção. Configurar branding no Asaas (**Nome fantasia = FlowMate** + logo) pra sumir o nome pessoal/CNPJ do checkout.
 2. **Ligar preço público:** `src/lib/pricing.js` → `PUBLISHED = false` → `true` (tira banner de prévia). Confirmar preços reais (hoje ilustrativos: essencial 149 / pro 249 / avançado 399 mensal na t1).
@@ -75,6 +114,9 @@ Landing → "Assinar {nível}"
 5. **Export de dados** do tenant (destrava a copy "seus dados são seus" na landing — hoje omitida por não existir).
 6. **Automações — implementar de verdade:** `send_email` (Resend), `wait_days` + gatilho `lead_inactive` (Vercel Cron). Estão marcados "em breve" na UI.
 7. **Confirmação de e-mail do Supabase:** está LIGADA (causou bug de redirect). O fluxo pagamento-primeiro contorna (cria user server-side). Se for usar signup direto algum dia, desligar em Authentication → Providers → Email, ou configurar Site URL = produção.
+8. **Provisionador de cliente (admin):** tela pra criar empresa + ativar + configurar integração + devolver as chaves num clique, substituindo o runbook SQL acima. Recomendado — vai onboardar várias clínicas (Atimos).
+9. **Publicar a doc de API como página** dentro do app (hoje é o `INTEGRATIONS.md` no repo). Útil pra vender o Pro.
+10. **Integração para equipe de marketing** — próximo objetivo do usuário, ainda a especificar.
 
 ## LIMPEZA pendente (dados de teste)
 - Contatos "Teste 409" e "Teste Idempotencia" no CRM.
