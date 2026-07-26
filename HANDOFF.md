@@ -2,7 +2,7 @@
 
 > Documento vivo pra retomar o projeto em sessão nova, com contexto zerado.
 > **Sem segredos aqui** — chaves ficam nas env vars do Vercel / painéis.
-> Última atualização: 2026-07-17.
+> Última atualização: 2026-07-25.
 >
 > **PRÓXIMO OBJETIVO (a fazer):** criar uma **integração para equipe de marketing** dentro do produto
 > (o usuário quer "incorporar" isso ao FlowMate). Ainda não especificado — levantar requisitos primeiro.
@@ -42,6 +42,7 @@ Compartilhados (não contam): `api/_lib/{db,conversations,sendMessage,webhooks,p
 - **API de consumidor `/v1`** (a "boca e mãos" do n8n): `POST /v1/messages` (409 se human), `POST /v1/leads` (idempotente por `external_id`), `GET /v1/fields`, `GET/PATCH /v1/contacts` (escreve campos por id ou nome, tags, move etapa/funil), `GET /v1/messages` (histórico), `POST /v1/notes`. Auth por `x-api-key` (company_integrations.api_key).
 - **Webhooks de saída** assinados (HMAC-SHA256 sobre `${ts}.${rawBody}`, header `X-Flowmate-Signature`), com `event_id` no payload. Eventos: `message.received` (só quando automation), `message.sent`, `contact.created`, `lead.created`, `lead.moved`. Config em Configurações → Integrações.
 - **Automações:** gatilhos (lead_entered_stage, lead_moved_stage, contact_created, tag_added, lead_lost) + ações (WhatsApp real com mídia, mover etapa cross-funil, nota, tag, prioridade, campo, webhook, alert_overdue). "Executar agora" em massa por etapa.
+- **Novos contatos chegando** (`src/components/NewArrivals.jsx` na tela Início): lista quem mandou WhatsApp e ainda não está no CRM (cruza telefone canônico — últimos 11 dígitos — com `crm_contacts`). Só admin/gestor. Ações: **Adicionar** (cria contato; via dropdown escolhe o **funil** de destino → cria lead no 1º estágio, roteando pra quem tem acesso àquele funil via `allowed_users`) e **Ignorar** (marca como "não é cliente", grava em `ignored_arrivals`, some e não volta). Auto-limpa: ao adicionar, vira contato e sai da lista. Fase 2 possível: config de visibilidade por vendedor / rodízio automático.
 - **Landing pública** (`src/pages/Landing.jsx`) + **fluxo pagamento-primeiro** (ver abaixo).
 - **Doc pública de integração:** `INTEGRATIONS.md` (webhook + /v1 + regras pro n8n).
 
@@ -67,6 +68,7 @@ Landing → "Assinar {nível}"
 - `companies`: `subscription_status, plan_level, plan_tier, plan_cycle, line_cap, asaas_customer_id, asaas_subscription_id, current_period_end`
 - `pending_signups`
 - `whatsapp_instances`, `whatsapp_messages` (+ `media_url`, `file_name`, `message_id`)
+- `ignored_arrivals` (novos contatos ignorados) — rodar `supabase_ignored_arrivals.sql`
 
 ---
 
@@ -110,7 +112,11 @@ select company_id, api_key, webhook_secret from company_integrations where compa
 1. **Ir pra produção no Asaas:** hoje é sandbox. Trocar `ASAAS_API_URL` → `https://api.asaas.com/v3` + chave de produção. Configurar branding no Asaas (**Nome fantasia = FlowMate** + logo) pra sumir o nome pessoal/CNPJ do checkout.
 2. **Ligar preço público:** `src/lib/pricing.js` → `PUBLISHED = false` → `true` (tira banner de prévia). Confirmar preços reais (hoje ilustrativos: essencial 149 / pro 249 / avançado 399 mensal na t1).
 3. **Multi-linha:** NÃO existe (um número por empresa). Só Faixa 1 à venda (`AVAILABLE_TIERS = ['t1']`). Quando construir, adicionar `t2`/`t3` e reativar UI de faixas + enforcement do teto (`line_cap`).
-4. **Blindagem pré-escala:** ligar **RLS** + índices em todas as tabelas `crm_*`/`whatsapp_*`/`flowmate_*`/`companies`/`pending_signups` (hoje RLS OFF, filtragem no cliente = risco LGPD). Medir quantas linhas Evolution cabem por RAM no Railway antes de vender volume.
+4. **Blindagem pré-escala:** **RLS LIGADO** em 2 etapas.
+   - `supabase_rls.sql` (2026-07-25): adicionou políticas `tenant_isolation` por `company_id` + helpers `get_my_company_id`/`get_my_role` como `SECURITY DEFINER` (recursão era o motivo do RLS estar OFF antes) + trancou tabelas só-servidor.
+   - ⚠️ **INCIDENTE + CORREÇÃO** `supabase_rls_fix.sql` (2026-07-25): o `rls.sql` sozinho **não fechou o vazamento** — o banco tinha políticas ANTIGAS abertas (`qual=true`: "public read contacts/leads/stages", "Enable all for anon users") e no Postgres policies permissivas se somam com **OU**, então uma `true` anula o isolamento. Enquanto isso valeu, `crm_contacts`/`crm_leads`/`crm_stages` e `flowmate_*` ficaram **lidos/escritos por qualquer um com a anon key (pública)**. O fix REMOVE as políticas furadas + duplicatas e endurece 3 brechas internas: auto-escalada de papel (`user_profiles.update_own`), escrita/apagar log (`whatsapp_messages.company_own`) e escrita de permissões por não-admin (`role_permissions`). **`whatsapp_messages` — as conversas dos pacientes — SEMPRE esteve protegida.** Verificação e estado final documentados no topo/fim do `supabase_rls_fix.sql`.
+   - **LIÇÃO:** ao ligar RLS, **auditar `pg_policies` ANTES** — adicionar política não basta; uma única policy `true` preexistente anula tudo. Rodar sempre a Verificação 1 (nenhuma `qual=true`).
+   - **Índices:** `supabase_indexes.sql` pronto (company_id + hot paths: `conversations(company_id,remote_jid)` por msg recebida, `whatsapp_messages`, `crm_*`). Rodar após o RLS. **Ainda pendente:** medir quantas linhas Evolution cabem por RAM no Railway antes de vender volume.
 5. **Export de dados** do tenant (destrava a copy "seus dados são seus" na landing — hoje omitida por não existir).
 6. **Automações — implementar de verdade:** `send_email` (Resend), `wait_days` + gatilho `lead_inactive` (Vercel Cron). Estão marcados "em breve" na UI.
 7. **Confirmação de e-mail do Supabase:** está LIGADA (causou bug de redirect). O fluxo pagamento-primeiro contorna (cria user server-side). Se for usar signup direto algum dia, desligar em Authentication → Providers → Email, ou configurar Site URL = produção.

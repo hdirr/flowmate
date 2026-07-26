@@ -8,7 +8,7 @@
 // Para trocar os preços: edite o objeto PRICES abaixo. É a única fonte.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const PUBLISHED = false; // vira true só quando o Agadir liberar preço público
+export const PUBLISHED = false; // preços validados (149/249/399 t1); virar TRUE no go-live, DEPOIS do pagamento (AbacatePay) em produção.
 
 // Desconto do plano anual (aplicado sobre 12x o mensal)
 export const ANNUAL_DISCOUNT = 0.23; // ~23%

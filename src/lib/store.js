@@ -369,6 +369,24 @@ export const db = {
     },
   },
 
+  // "Novos contatos chegando": números que mandaram WhatsApp e não estão no CRM.
+  // A lista em si é derivada no componente; aqui fica só a lista de IGNORADOS
+  // (quem o admin marcou como "não é cliente" — some e não volta).
+  arrivals: {
+    ignoredKeys: async () => {
+      // Se a tabela ainda não existir (migração não rodada), supabase-js devolve
+      // { data: null, error } sem lançar — retornamos vazio e nada quebra.
+      const { data } = await supabase.from('ignored_arrivals')
+        .select('phone_key')
+        .eq('company_id', cid());
+      return (data || []).map(r => r.phone_key);
+    },
+    ignore: async (phoneKey) => {
+      await supabase.from('ignored_arrivals')
+        .insert({ company_id: cid(), phone_key: phoneKey });
+    },
+  },
+
   customFields: {
     list: async () => {
       const { data } = await supabase.from('custom_fields')

@@ -12,6 +12,13 @@ function toMs(ts) {
   return new Date(ts).getTime();
 }
 
+// Forma canônica de telefone p/ casar mensagem x contato: só dígitos, últimos 11
+// (DDD + número), o que ignora o prefixo 55 e a formatação salva no contato.
+function phoneKey(p) {
+  const d = String(p || '').replace(/\D/g, '');
+  return d.length >= 11 ? d.slice(-11) : d;
+}
+
 function timeAgo(ms) {
   const diff = Date.now() - ms;
   if (diff < 60000) return 'agora';
@@ -48,23 +55,40 @@ export default function NotificationBell() {
 
   // Carga inicial: últimas mensagens recebidas + leads recentes
   const loadInitial = useCallback(async () => {
-    const [{ data: msgs }, leads] = await Promise.all([
+    // Puxa mais mensagens (30) porque vamos descartar as de quem não é contato.
+    const [{ data: msgs }, leads, contacts] = await Promise.all([
       supabase.from('whatsapp_messages')
         .select('*')
         .eq('from_me', false)
         .order('timestamp', { ascending: false })
-        .limit(15),
+        .limit(30),
       db.leads.list(),
+      db.contacts.list(),
     ]);
 
-    const msgItems = (msgs || []).map(m => ({
-      id: `msg-${m.id}`,
-      type: 'message',
-      title: m.contact_name || m.remote_jid?.replace(/@.*/, '') || 'Contato',
-      subtitle: m.content,
-      time: toMs(m.timestamp),
-      phone: m.remote_jid?.replace(/@.*/, ''),
-    }));
+    // Índice de telefones cadastrados no CRM (nome incluso p/ exibir bonito).
+    const contactByPhone = new Map();
+    for (const c of (contacts || [])) {
+      const k = phoneKey(c.phone);
+      if (k) contactByPhone.set(k, c);
+    }
+
+    const msgItems = (msgs || [])
+      // Só notifica mensagem de quem JÁ é contato cadastrado no CRM.
+      .filter(m => contactByPhone.has(phoneKey(m.remote_jid?.replace(/@.*/, ''))))
+      .slice(0, 15)
+      .map(m => {
+        const phone = m.remote_jid?.replace(/@.*/, '');
+        const contact = contactByPhone.get(phoneKey(phone));
+        return {
+          id: `msg-${m.id}`,
+          type: 'message',
+          title: contact?.name || m.contact_name || phone || 'Contato',
+          subtitle: m.content,
+          time: toMs(m.timestamp),
+          phone,
+        };
+      });
 
     const leadItems = (leads || []).slice(0, 15).map(l => ({
       id: `lead-${l.id}`,

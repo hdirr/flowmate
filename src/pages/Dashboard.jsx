@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../lib/store';
+import NewArrivals from '../components/NewArrivals';
 import { Users, KanbanSquare, Bot, ArrowRight, TrendingUp, TrendingDown, Sparkles, Target } from 'lucide-react';
 
 const DAY = 86400000;
@@ -139,6 +140,9 @@ export default function Dashboard() {
           ))}
         </div>
       )}
+
+      {/* Novos contatos chegando (admin/gestor) — some sozinho quando vazio */}
+      <NewArrivals />
 
       {/* Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
