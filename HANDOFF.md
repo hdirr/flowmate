@@ -31,7 +31,8 @@ Compartilhados (não contam): `api/_lib/{db,conversations,sendMessage,webhooks,p
 ## Env vars no Vercel (nomes; valores só no painel)
 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,
 `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `APP_URL`, `WEBHOOK_SECRET` (opcional),
-`ASAAS_API_KEY`, `ASAAS_API_URL` (hoje sandbox), `ASAAS_WEBHOOK_TOKEN`.
+`ASAAS_API_KEY`, `ASAAS_API_URL` (legado — saindo), `ASAAS_WEBHOOK_TOKEN`.
+**AbacatePay (novo provedor):** `ABACATEPAY_API_KEY` (v1; hoje chave `abc_dev_` de teste), `ABACATEPAY_WEBHOOK_SECRET`. Base fixa no código: `https://api.abacatepay.com/v1`.
 
 ---
 
@@ -109,7 +110,7 @@ select company_id, api_key, webhook_secret from company_integrations where compa
   Fluxo: webhook assinado → n8n → agente → responde via `POST /v1/messages` (respeita o 409 se humano assumir).
 
 ## PENDÊNCIAS / PRÓXIMOS PASSOS
-1. **Ir pra produção no Asaas:** hoje é sandbox. Trocar `ASAAS_API_URL` → `https://api.asaas.com/v3` + chave de produção. Configurar branding no Asaas (**Nome fantasia = FlowMate** + logo) pra sumir o nome pessoal/CNPJ do checkout.
+1. **Pagamento: migrando Asaas → AbacatePay** (resolve o branding/CNPJ no checkout). **Fase 1 (código PRONTO, teste devMode pendente):** `api/billing/[...path].js` reescrito pro AbacatePay v1 — cobrança avulsa `ONE_TIME` com produto **inline** (preço do `plans.js`, servidor manda), PIX; webhook `billing.paid` verificado por `?webhookSecret=`; correlação pelo `abacate_billing_id`. Contrato do front intacto (`start`→`{url,token}`). Migração `supabase_abacate.sql` (colunas `abacate_*`). **A confirmar em devMode:** se `customer.cellphone` é obrigatório (talvez precise coletar telefone no Checkout), shape exato do payload do webhook, e habilitar `methods:['CARD']`. **Fase 2 (a fazer):** assinatura automática no cartão (recorrência de verdade) = API **v2** (`/checkouts/create` frequency=SUBSCRIPTION, eventos `subscription.*`). **Go-live:** conta AbacatePay em verificação (KYC via Woovi, até 72h desde 2026-07-29); quando aprovada → trocar `ABACATEPAY_API_KEY` de teste pela de produção + `PUBLISHED=true`. Ver [[flowmate-payment-abacatepay]].
 2. **Ligar preço público:** `src/lib/pricing.js` → `PUBLISHED = false` → `true` (tira banner de prévia). Confirmar preços reais (hoje ilustrativos: essencial 149 / pro 249 / avançado 399 mensal na t1).
 3. **Multi-linha:** NÃO existe (um número por empresa). Só Faixa 1 à venda (`AVAILABLE_TIERS = ['t1']`). Quando construir, adicionar `t2`/`t3` e reativar UI de faixas + enforcement do teto (`line_cap`).
 4. **Blindagem pré-escala:** **RLS LIGADO** em 2 etapas.

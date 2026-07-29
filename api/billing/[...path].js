@@ -2,19 +2,48 @@ import { adminClient, resolveUser } from '../_lib/db.js';
 import { billingFor, lineCap, isValidPlan } from '../_lib/plans.js';
 import crypto from 'crypto';
 
-const ASAAS_URL = process.env.ASAAS_API_URL || 'https://sandbox.asaas.com/api/v3';
-const ASAAS_KEY = process.env.ASAAS_API_KEY;
-const ASAAS_WEBHOOK_TOKEN = process.env.ASAAS_WEBHOOK_TOKEN;
+// ─── AbacatePay (v1) ─────────────────────────────────────────────────────────
+// Provedor de pagamento. Cobrança avulsa (ONE_TIME) com produto INLINE — o preço
+// sai do plans.js (servidor manda). PIX/cartão via checkout hospedado; o aviso de
+// pago chega por webhook (evento billing.paid). Assinatura automática no cartão
+// (recorrência de verdade) é Fase 2 (API v2), ainda não implementada.
+const ABACATE_URL = 'https://api.abacatepay.com/v1';
+const ABACATE_KEY = process.env.ABACATEPAY_API_KEY;
+const ABACATE_WEBHOOK_SECRET = process.env.ABACATEPAY_WEBHOOK_SECRET;
 const APP_URL = process.env.APP_URL || 'https://flowmate-ashy.vercel.app';
 
-async function asaas(path, method, body) {
-  const res = await fetch(`${ASAAS_URL}${path}`, {
+async function abacate(path, method, body) {
+  const res = await fetch(`${ABACATE_URL}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', 'access_token': ASAAS_KEY },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ABACATE_KEY}` },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await res.json().catch(() => ({}));
-  return { ok: res.ok, status: res.status, data };
+  const json = await res.json().catch(() => ({}));
+  // AbacatePay responde { data, error } — sucesso = HTTP ok E sem error.
+  return { ok: res.ok && !json.error, status: res.status, data: json.data, error: json.error };
+}
+
+// Monta o payload de cobrança avulsa. externalId no produto = referência do plano.
+// A correlação com o webhook é pelo billing id (guardado no banco).
+function buildBilling(plan, { plan_level, plan_tier, plan_cycle, name, email, cpfCnpj, cellphone }, token) {
+  return {
+    frequency: 'ONE_TIME',
+    methods: ['PIX'], // TODO devMode: incluir 'CARD' quando o cartão estiver habilitado
+    products: [{
+      externalId: `${plan_level}_${plan_tier}_${plan_cycle}`,
+      name: `FlowMate — ${plan.label}`,
+      quantity: 1,
+      price: Math.round(plan.value * 100), // centavos
+    }],
+    returnUrl: `${APP_URL}/ativar?token=${token}`,
+    completionUrl: `${APP_URL}/ativar?token=${token}`,
+    customer: {
+      name: (name && name.trim()) || email.split('@')[0],
+      email,
+      taxId: String(cpfCnpj).replace(/\D/g, ''),
+      ...(cellphone ? { cellphone: String(cellphone).replace(/\D/g, '') } : {}),
+    },
+  };
 }
 
 export default async function handler(req, res) {
@@ -31,18 +60,18 @@ export default async function handler(req, res) {
   if (route === 'status')   return status(req, res);   // consulta se já pagou (público)
   if (route === 'activate') return activate(req, res); // cria a conta após pagar (público)
   if (route === 'checkout') return checkout(req, res); // conta já existente (com login)
-  if (route === 'webhook')  return webhook(req, res);  // Asaas → ativa/atualiza
+  if (route === 'webhook')  return webhook(req, res);  // AbacatePay → ativa/atualiza
   return res.status(404).json({ error: 'not_found' });
 }
 
 // ─── POST /api/billing/start ───
-// Pagamento ANTES da conta. Cria cliente+assinatura na Asaas, guarda um cadastro
+// Pagamento ANTES da conta. Cria a cobrança no AbacatePay, guarda um cadastro
 // pendente e devolve a URL do checkout hospedado.
 async function start(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
-  if (!ASAAS_KEY) return res.status(500).json({ error: 'gateway_nao_configurado' });
+  if (!ABACATE_KEY) return res.status(500).json({ error: 'gateway_nao_configurado' });
 
-  const { plan_level, plan_tier = 't1', plan_cycle = 'mensal', email, cpfCnpj, name } = req.body || {};
+  const { plan_level, plan_tier = 't1', plan_cycle = 'mensal', email, cpfCnpj, name, cellphone } = req.body || {};
   if (!isValidPlan(plan_level, plan_tier)) return res.status(400).json({ error: 'plano_invalido' });
   if (!email) return res.status(400).json({ error: 'email_obrigatorio' });
   if (!cpfCnpj) return res.status(400).json({ error: 'cpf_cnpj_obrigatorio' });
@@ -51,36 +80,21 @@ async function start(req, res) {
   const admin = adminClient();
   const token = crypto.randomUUID();
 
-  // Cliente na Asaas (nome real do comprador, quando informado)
-  const c = await asaas('/customers', 'POST', {
-    name: (name && name.trim()) || email.split('@')[0],
-    email, cpfCnpj: String(cpfCnpj).replace(/\D/g, ''),
-  });
-  if (!c.ok) return res.status(400).json({ error: 'erro_cliente', detail: c.data });
+  const bill = await abacate('/billing/create', 'POST',
+    buildBilling(plan, { plan_level, plan_tier, plan_cycle, name, email, cpfCnpj, cellphone }, token));
+  if (!bill.ok) return res.status(400).json({ error: 'erro_cobranca', detail: bill.error });
 
-  // Assinatura. externalReference = token do cadastro pendente.
-  const firstDue = new Date(); firstDue.setDate(firstDue.getDate() + 1);
-  const sub = await asaas('/subscriptions', 'POST', {
-    customer: c.data.id,
-    billingType: 'UNDEFINED',
-    value: plan.value,
-    cycle: plan.asaasCycle,
-    nextDueDate: firstDue.toISOString().slice(0, 10),
-    description: `FlowMate — ${plan.label}`,
-    externalReference: token,
-  });
-  if (!sub.ok) return res.status(400).json({ error: 'erro_assinatura', detail: sub.data });
+  const url = bill.data?.url;
+  const billingId = bill.data?.id;
+  if (!url) return res.status(502).json({ error: 'sem_url_checkout' });
 
   await admin.from('pending_signups').insert({
     signup_token: token, email,
     plan_level, plan_tier, plan_cycle,
-    asaas_customer_id: c.data.id, asaas_subscription_id: sub.data.id,
+    abacate_customer_id: bill.data?.customer?.id || bill.data?.customer?.metadata?.id || null,
+    abacate_billing_id: billingId,
     status: 'pending',
   });
-
-  const pays = await asaas(`/payments?subscription=${sub.data.id}`, 'GET');
-  const url = pays.data?.data?.[0]?.invoiceUrl || null;
-  if (!url) return res.status(502).json({ error: 'sem_url_checkout' });
 
   return res.status(200).json({ url, token });
 }
@@ -136,8 +150,8 @@ async function activate(req, res) {
   await admin.from('companies').update({
     plan_level: pending.plan_level, plan_tier: pending.plan_tier, plan_cycle: pending.plan_cycle,
     subscription_status: 'active', line_cap: lineCap(pending.plan_tier),
-    asaas_customer_id: pending.asaas_customer_id,
-    asaas_subscription_id: pending.asaas_subscription_id,
+    abacate_customer_id: pending.abacate_customer_id,
+    abacate_billing_id: pending.abacate_billing_id,
     current_period_end: end.toISOString(),
   }).eq('id', companyId);
 
@@ -146,78 +160,82 @@ async function activate(req, res) {
   return res.status(200).json({ ok: true, email: pending.email });
 }
 
-// ─── POST /api/billing/checkout ─── (conta já existente — trava de renovação)
+// ─── POST /api/billing/checkout ─── (conta já existente — renovação/reativação)
 async function checkout(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
-  if (!ASAAS_KEY) return res.status(500).json({ error: 'gateway_nao_configurado' });
+  if (!ABACATE_KEY) return res.status(500).json({ error: 'gateway_nao_configurado' });
 
   const who = await resolveUser(req.headers.authorization);
   if (!who) return res.status(401).json({ error: 'unauthorized' });
 
   const admin = adminClient();
   const { data: company } = await admin.from('companies')
-    .select('id, name, plan_level, plan_tier, plan_cycle, asaas_customer_id')
+    .select('id, name, plan_level, plan_tier, plan_cycle, abacate_customer_id')
     .eq('id', who.companyId).single();
   if (!company) return res.status(404).json({ error: 'empresa_nao_encontrada' });
 
-  const { cpfCnpj } = req.body || {};
+  const { cpfCnpj, cellphone } = req.body || {};
   if (!isValidPlan(company.plan_level, company.plan_tier)) return res.status(400).json({ error: 'plano_invalido' });
   if (!cpfCnpj) return res.status(400).json({ error: 'cpf_cnpj_obrigatorio' });
 
   const plan = billingFor(company.plan_level, company.plan_tier, company.plan_cycle || 'mensal');
 
-  let customerId = company.asaas_customer_id;
-  if (!customerId) {
-    const c = await asaas('/customers', 'POST', { name: company.name, email: who.email, cpfCnpj: String(cpfCnpj).replace(/\D/g, '') });
-    if (!c.ok) return res.status(400).json({ error: 'erro_cliente', detail: c.data });
-    customerId = c.data.id;
-    await admin.from('companies').update({ asaas_customer_id: customerId }).eq('id', company.id);
-  }
+  // Cobrança avulsa da renovação. Correlação pelo billing id (guardado na empresa).
+  const bill = await abacate('/billing/create', 'POST',
+    buildBilling(plan, {
+      plan_level: company.plan_level, plan_tier: company.plan_tier, plan_cycle: company.plan_cycle || 'mensal',
+      name: company.name, email: who.email, cpfCnpj, cellphone,
+    }, company.id));
+  if (!bill.ok) return res.status(400).json({ error: 'erro_cobranca', detail: bill.error });
 
-  const firstDue = new Date(); firstDue.setDate(firstDue.getDate() + 1);
-  const sub = await asaas('/subscriptions', 'POST', {
-    customer: customerId, billingType: 'UNDEFINED', value: plan.value, cycle: plan.asaasCycle,
-    nextDueDate: firstDue.toISOString().slice(0, 10), description: `FlowMate — ${plan.label}`,
-    externalReference: company.id,
-  });
-  if (!sub.ok) return res.status(400).json({ error: 'erro_assinatura', detail: sub.data });
-  await admin.from('companies').update({ asaas_subscription_id: sub.data.id }).eq('id', company.id);
-
-  const pays = await asaas(`/payments?subscription=${sub.data.id}`, 'GET');
-  const url = pays.data?.data?.[0]?.invoiceUrl || null;
+  const url = bill.data?.url;
   if (!url) return res.status(502).json({ error: 'sem_url_checkout' });
+
+  await admin.from('companies').update({
+    abacate_billing_id: bill.data?.id,
+    abacate_customer_id: company.abacate_customer_id || bill.data?.customer?.id || null,
+  }).eq('id', company.id);
+
   return res.status(200).json({ url });
 }
 
 // ─── POST /api/billing/webhook ───
+// AbacatePay chama com o secret na query (?webhookSecret=...). Evento billing.paid = pago.
 async function webhook(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
-  if (ASAAS_WEBHOOK_TOKEN) {
-    if (req.headers['asaas-access-token'] !== ASAAS_WEBHOOK_TOKEN) return res.status(401).json({ error: 'unauthorized' });
+  if (ABACATE_WEBHOOK_SECRET) {
+    // O secret pode chegar na query (?webhookSecret=) ou em header — aceita ambos.
+    const h = req.headers || {};
+    const provided = req.query?.webhookSecret
+      || h['webhook-secret'] || h['x-webhook-secret'] || h['x-abacatepay-webhook-secret'];
+    if (provided !== ABACATE_WEBHOOK_SECRET) return res.status(401).json({ error: 'unauthorized' });
   }
 
   const event = req.body?.event;
-  const ref = req.body?.payment?.externalReference;
-  if (!ref) return res.status(200).json({ ok: true });
+  const paid = event === 'billing.paid' || event === 'checkout.completed';
+
+  // Localiza o billing id no payload (defensivo — confirmar shape exato em devMode).
+  const b = req.body?.data || {};
+  const billingId = b.billing?.id || b.id || b.payment?.billing?.id || req.body?.billing?.id || null;
+
+  if (!paid || !billingId) return res.status(200).json({ ok: true }); // ignora eventos que não interessam
 
   const admin = adminClient();
-  let status = null;
-  if (['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED'].includes(event)) status = 'active';
-  else if (event === 'PAYMENT_OVERDUE') status = 'past_due';
-  else if (['PAYMENT_DELETED', 'PAYMENT_REFUNDED', 'PAYMENT_CHARGEBACK_REQUESTED'].includes(event)) status = 'canceled';
-  if (!status) return res.status(200).json({ ok: true });
 
-  // Caso 1: cadastro pendente (externalReference = signup_token)
-  const { data: pending } = await admin.from('pending_signups').select('company_id').eq('signup_token', ref).single();
+  // Caso 1: cadastro pendente (pagamento-primeiro)
+  const { data: pending } = await admin.from('pending_signups')
+    .select('company_id').eq('abacate_billing_id', billingId).single();
   if (pending) {
-    await admin.from('pending_signups').update({ status: status === 'active' ? 'paid' : status }).eq('signup_token', ref);
-    // Se já virou empresa (renovação), reflete na empresa também
-    if (pending.company_id) await applyCompanyStatus(admin, pending.company_id, status);
+    await admin.from('pending_signups').update({ status: 'paid' }).eq('abacate_billing_id', billingId);
+    if (pending.company_id) await applyCompanyStatus(admin, pending.company_id, 'active'); // renovação já ativada
     return res.status(200).json({ ok: true });
   }
 
-  // Caso 2: empresa existente (externalReference = company_id)
-  await applyCompanyStatus(admin, ref, status);
+  // Caso 2: empresa existente (renovação) — correlação pelo billing id na empresa
+  const { data: company } = await admin.from('companies')
+    .select('id').eq('abacate_billing_id', billingId).single();
+  if (company) await applyCompanyStatus(admin, company.id, 'active');
+
   return res.status(200).json({ ok: true });
 }
 

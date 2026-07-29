@@ -101,7 +101,7 @@ export default function Billing({ onLogout, onActivated }) {
           </button>
 
           <p className="text-[11px] text-gray-600 text-center mt-3">
-            Pagamento processado pela Asaas. O cartão nunca passa pelo FlowMate.
+            Pagamento processado pela AbacatePay. O cartão nunca passa pelo FlowMate.
           </p>
 
           <button onClick={recheck} disabled={checking}

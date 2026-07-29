@@ -130,7 +130,7 @@ export default function Checkout() {
 
           <div className="flex items-center gap-2 mt-4 text-xs text-gray-500">
             <ShieldCheck className="w-4 h-4 text-green-500 shrink-0" />
-            Pagamento seguro processado pela Asaas. O cartão nunca passa pelo FlowMate.
+            Pagamento seguro processado pela AbacatePay. O cartão nunca passa pelo FlowMate.
           </div>
 
           <div className="flex items-center justify-center gap-4 mt-4 pt-4 border-t border-gray-800 text-xs text-gray-500">
