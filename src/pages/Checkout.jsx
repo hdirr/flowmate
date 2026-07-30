@@ -11,7 +11,7 @@ export default function Checkout() {
   const annual = cycle === 'anual';
   const price = annual ? annualMonthly(level.id, 't1') : monthlyPrice(level.id, 't1');
 
-  const [form, setForm] = useState({ name: '', email: '', cpfCnpj: '' });
+  const [form, setForm] = useState({ name: '', email: '', cpfCnpj: '', phone: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -20,7 +20,7 @@ export default function Checkout() {
   async function goToPayment(e) {
     e.preventDefault();
     setError('');
-    if (!form.name.trim() || !form.email.trim() || !form.cpfCnpj.trim()) {
+    if (!form.name.trim() || !form.email.trim() || !form.cpfCnpj.trim() || !form.phone.trim()) {
       setError('Preencha todos os campos.'); return;
     }
     setLoading(true);
@@ -31,6 +31,7 @@ export default function Checkout() {
       body: JSON.stringify({
         plan_level: level.id, plan_tier: 't1', plan_cycle: cycle,
         name: form.name.trim(), email: form.email.trim(), cpfCnpj: form.cpfCnpj.replace(/\D/g, ''),
+        cellphone: form.phone.replace(/\D/g, ''),
       }),
     });
     const data = await res.json();
@@ -116,6 +117,11 @@ export default function Checkout() {
             <div>
               <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5 block">CPF ou CNPJ</label>
               <input value={form.cpfCnpj} onChange={e => set('cpfCnpj', e.target.value)} placeholder="Para a nota fiscal" required
+                className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 placeholder-gray-600" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5 block">Celular / WhatsApp</label>
+              <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="(11) 99999-9999" inputMode="tel" required
                 className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 placeholder-gray-600" />
             </div>
 

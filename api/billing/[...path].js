@@ -75,6 +75,7 @@ async function start(req, res) {
   if (!isValidPlan(plan_level, plan_tier)) return res.status(400).json({ error: 'plano_invalido' });
   if (!email) return res.status(400).json({ error: 'email_obrigatorio' });
   if (!cpfCnpj) return res.status(400).json({ error: 'cpf_cnpj_obrigatorio' });
+  if (!cellphone) return res.status(400).json({ error: 'telefone_obrigatorio' });
 
   const plan = billingFor(plan_level, plan_tier, plan_cycle);
   const admin = adminClient();
@@ -177,6 +178,7 @@ async function checkout(req, res) {
   const { cpfCnpj, cellphone } = req.body || {};
   if (!isValidPlan(company.plan_level, company.plan_tier)) return res.status(400).json({ error: 'plano_invalido' });
   if (!cpfCnpj) return res.status(400).json({ error: 'cpf_cnpj_obrigatorio' });
+  if (!cellphone) return res.status(400).json({ error: 'telefone_obrigatorio' });
 
   const plan = billingFor(company.plan_level, company.plan_tier, company.plan_cycle || 'mensal');
 

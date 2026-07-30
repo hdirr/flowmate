@@ -9,6 +9,7 @@ import { CreditCard, LogOut, RefreshCw, ShieldCheck, Loader2 } from 'lucide-reac
 export default function Billing({ onLogout, onActivated }) {
   const company = auth.company();
   const [cpfCnpj, setCpfCnpj] = useState('');
+  const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
@@ -26,13 +27,14 @@ export default function Billing({ onLogout, onActivated }) {
   async function pay() {
     setError('');
     if (!cpfCnpj.trim()) { setError('Informe seu CPF ou CNPJ para a nota fiscal.'); return; }
+    if (!phone.trim()) { setError('Informe um celular/WhatsApp.'); return; }
     setLoading(true);
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
     const res = await fetch('/api/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ cpfCnpj: cpfCnpj.replace(/\D/g, '') }),
+      body: JSON.stringify({ cpfCnpj: cpfCnpj.replace(/\D/g, ''), cellphone: phone.replace(/\D/g, '') }),
     });
     const data = await res.json();
     if (!res.ok || !data.url) {
@@ -90,6 +92,11 @@ export default function Billing({ onLogout, onActivated }) {
           <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5 block">CPF ou CNPJ</label>
           <input value={cpfCnpj} onChange={e => setCpfCnpj(e.target.value)}
             placeholder="Para a nota fiscal"
+            className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-4 py-2.5 text-sm mb-4 focus:outline-none focus:border-blue-500 placeholder-gray-600" />
+
+          <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5 block">Celular / WhatsApp</label>
+          <input value={phone} onChange={e => setPhone(e.target.value)}
+            placeholder="(11) 99999-9999" inputMode="tel"
             className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-4 py-2.5 text-sm mb-4 focus:outline-none focus:border-blue-500 placeholder-gray-600" />
 
           {error && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-3 py-2 rounded-lg mb-4">{error}</div>}
