@@ -386,7 +386,10 @@ export default function Chats() {
 
   async function createGroup() {
     setGroupError('');
-    if (!groupName.trim() || selectedIds.size === 0) return;
+    if (!groupName.trim() || selectedIds.size === 0) {
+      setGroupError('Preencha o nome do grupo e selecione ao menos 1 contato.');
+      return;
+    }
     setCreating(true);
     try {
       const session = await supabase.auth.getSession();

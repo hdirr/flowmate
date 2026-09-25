@@ -597,7 +597,7 @@ async function handleGroups(req, res) {
   const { name, description, participantIds } = req.body || {};
   if (!name || !Array.isArray(participantIds) || participantIds.length === 0) {
     console.error('[whatsapp/groups] validação falhou — payload recebido:', JSON.stringify(req.body));
-    return res.status(400).json({ error: 'Nome e participantes são obrigatórios' });
+    return res.status(400).json({ error: 'Nome e participantes são obrigatórios', received: req.body ?? null });
   }
 
   const instanceName = instanceNameFor(who.companyId);
