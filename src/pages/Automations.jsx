@@ -5,7 +5,7 @@ import { auth, userStore, ROLE_LABELS } from '../lib/auth';
 import {
   Plus, Trash2, Bot, Zap, X, ToggleLeft, ToggleRight,
   ArrowDown, KanbanSquare, MessageCircle, StickyNote, Tag,
-  UserPlus, Mail, Bell, Clock, Webhook, Star, UserMinus, AlertCircle, Play,
+  UserPlus, Mail, Bell, Clock, Webhook, Star, UserMinus, AlertCircle, Play, Users,
   ChevronUp, ChevronDown, PenLine, Paperclip, Loader2, FileText
 } from 'lucide-react';
 
@@ -19,7 +19,8 @@ const TRIGGERS = [
 ];
 
 const ACTIONS = [
-  { value: 'send_whatsapp', label: 'Enviar WhatsApp',    icon: MessageCircle, color: '#25d366' },
+  { value: 'send_whatsapp',       label: 'Enviar WhatsApp',   icon: MessageCircle, color: '#25d366' },
+  { value: 'send_whatsapp_group', label: 'Enviar p/ grupo',   icon: Users,         color: '#6366f1' },
   { value: 'send_email',    label: 'Enviar e-mail',      icon: Mail,          color: '#6366f1', soon: true },
   { value: 'add_note',      label: 'Nota interna',       icon: StickyNote,    color: '#f59e0b' },
   { value: 'notify_team',   label: 'Notificar equipe',   icon: Bell,          color: '#8b5cf6' },
@@ -47,8 +48,16 @@ function StepConfig({ action, onChange, stages, pipelines = [] }) {
   const [showCreate, setShowCreate] = useState(false);
   const [newField, setNewField] = useState({ name: '', type: 'text', options: '' });
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [groups, setGroups] = useState([]);
 
   useEffect(() => { db.customFields.list().then(setFields); }, []);
+  useEffect(() => {
+    supabase.from('whatsapp_groups')
+      .select('id, jid, name')
+      .eq('instance_name', `flowmate-${auth.currentCompanyId()}`)
+      .order('name')
+      .then(({ data }) => setGroups(data || []));
+  }, []);
 
   async function uploadMedia(e) {
     const file = e.target.files?.[0];
@@ -83,7 +92,13 @@ function StepConfig({ action, onChange, stages, pipelines = [] }) {
     setShowCreate(false);
   }
 
-  const hasTextBody = ['send_whatsapp', 'send_email', 'add_note', 'notify_team', 'webhook', 'alert_overdue'].includes(action.type);
+  const hasTextBody = ['send_whatsapp', 'send_whatsapp_group', 'send_email', 'add_note', 'notify_team', 'webhook', 'alert_overdue'].includes(action.type);
+
+  function toggleGroup(jid) {
+    const cur = action.groupIds || [];
+    const next = cur.includes(jid) ? cur.filter(j => j !== jid) : [...cur, jid];
+    onChange({ ...action, groupIds: next });
+  }
 
   return (
     <div className="mt-2 space-y-2">
@@ -99,7 +114,7 @@ function StepConfig({ action, onChange, stages, pipelines = [] }) {
           ) : (
             <>
               <textarea value={action.body || ''} onChange={e => onChange({ ...action, body: e.target.value })}
-                placeholder={action.type === 'send_whatsapp' ? 'Olá {nome}, tudo bem?' : action.type === 'add_note' ? 'Ex: Lead qualificado automaticamente' : 'Mensagem...'}
+                placeholder={action.type === 'send_whatsapp' ? 'Olá {nome}, tudo bem?' : action.type === 'send_whatsapp_group' ? 'Ex: Aviso para todos os clientes' : action.type === 'add_note' ? 'Ex: Lead qualificado automaticamente' : 'Mensagem...'}
                 rows={3} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none" />
               <p className="text-xs text-gray-300 mt-0.5">Use <span className="font-mono bg-gray-100 px-1 rounded text-gray-400">{'{nome}'}</span> para personalizar</p>
             </>
@@ -107,8 +122,8 @@ function StepConfig({ action, onChange, stages, pipelines = [] }) {
         </div>
       )}
 
-      {/* Anexo opcional para WhatsApp */}
-      {action.type === 'send_whatsapp' && (
+      {/* Anexo opcional para WhatsApp (1:1 e grupos) */}
+      {['send_whatsapp', 'send_whatsapp_group'].includes(action.type) && (
         <div>
           <label className="text-xs text-gray-400 mb-1 block">Anexo (opcional)</label>
           {action.mediaUrl ? (
@@ -124,6 +139,34 @@ function StepConfig({ action, onChange, stages, pipelines = [] }) {
               <span className="text-gray-500">{uploadingMedia ? 'Enviando...' : 'Anexar foto, vídeo ou PDF'}</span>
               <input type="file" accept="image/*,video/*,application/pdf" onChange={uploadMedia} disabled={uploadingMedia} className="hidden" />
             </label>
+          )}
+        </div>
+      )}
+
+      {/* Destinatários por grupo */}
+      {action.type === 'send_whatsapp_group' && (
+        <div>
+          <label className="text-xs text-gray-400 mb-1 block">Grupos destinatários ({action.groupIds?.length || 0})</label>
+          {groups.length === 0 ? (
+            <p className="text-xs text-gray-400 bg-gray-50 px-3 py-2 rounded-lg">
+              Nenhum grupo criado ainda — crie grupos na aba Chats.
+            </p>
+          ) : (
+            <div className="max-h-44 overflow-y-auto border border-gray-100 rounded-xl divide-y divide-gray-50">
+              {groups.map(g => {
+                const checked = (action.groupIds || []).includes(g.jid);
+                return (
+                  <label key={g.id}
+                    className={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${checked ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleGroup(g.jid)} className="accent-indigo-600" />
+                    <span className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                      <Users className="w-3 h-3 text-indigo-500" />
+                    </span>
+                    <span className="text-sm text-gray-700 truncate">{g.name}</span>
+                  </label>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
@@ -392,8 +435,10 @@ export default function Automations() {
     }
     const leads = await db.leads.list();
     const stageId = wf.triggerStageId || wf.trigger_config?.stage_id;
+    const hasLeadActions = wf.actions.some(a => a.type !== 'send_whatsapp_group');
     const stageLeads = stageId ? leads.filter(l => l.stage_id === stageId) : leads;
-    if (stageLeads.length === 0) { setRunResult({ wfId: wf.id, error: 'Nenhum lead encontrado na etapa configurada.' }); return; }
+    // Só exige lead quando há ações que dependem de lead.
+    if (hasLeadActions && stageLeads.length === 0) { setRunResult({ wfId: wf.id, error: 'Nenhum lead encontrado na etapa configurada.' }); return; }
 
     // Token e instância para envio real de WhatsApp
     const { data: { session } } = await supabase.auth.getSession();
@@ -440,8 +485,36 @@ export default function Automations() {
       }
     }
 
+    // Ações de grupo: disparam UMA vez por execução (não por lead)
+    for (const action of wf.actions) {
+      if (action.type !== 'send_whatsapp_group') continue;
+      if (!(action.body || action.mediaUrl) || !token || !(action.groupIds?.length)) continue;
+      const { data: groups } = await supabase
+        .from('whatsapp_groups')
+        .select('jid, name')
+        .eq('instance_name', instanceName)
+        .in('jid', action.groupIds);
+      for (const g of (groups || [])) {
+        const msg = (action.body || '').replace(/\{nome\}/gi, '');
+        if (action.mediaUrl) {
+          await fetch('/api/whatsapp/send-media', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ to: g.jid, mediaUrl: action.mediaUrl, mediaType: action.mediaType, mimeType: action.mimeType, fileName: action.fileName, caption: msg || undefined, sender: 'automation' }),
+          }).catch(() => {});
+        } else {
+          await fetch('/api/whatsapp/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ to: g.jid, message: msg, sender: 'automation' }),
+          }).catch(() => {});
+        }
+      }
+    }
+
     window.dispatchEvent(new Event('flowmate:update'));
-    setRunResult({ wfId: wf.id, ok: true, count: stageLeads.length });
+    const groupCount = wf.actions.some(a => a.type === 'send_whatsapp_group' && a.groupIds?.length) ? 1 : 0;
+    setRunResult({ wfId: wf.id, ok: true, count: hasLeadActions ? stageLeads.length : groupCount });
     setTimeout(() => setRunResult(null), 3000);
   }
 

@@ -74,6 +74,8 @@ export default function NotificationBell() {
     }
 
     const msgItems = (msgs || [])
+      // Ignora mensagens de grupos/newsletters (não são pessoas do CRM)
+      .filter(m => !String(m.remote_jid || '').includes('@g.us'))
       // Só notifica mensagem de quem JÁ é contato cadastrado no CRM.
       .filter(m => contactByPhone.has(phoneKey(m.remote_jid?.replace(/@.*/, ''))))
       .slice(0, 15)

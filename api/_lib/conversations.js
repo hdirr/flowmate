@@ -14,7 +14,12 @@ function samePhone(a, b) {
 
 // Tenta achar o contato do CRM correspondente ao número (best-effort).
 async function findContactId(companyId, remoteJid) {
-  const phone = String(remoteJid || '').replace(/@.*/, '').replace(/\D/g, '');
+  // JIDs de grupo (@g.us), broadcast e newsletter NÃO são pessoas — nunca
+  // vincula a um contato do CRM (os dígitos do JID poderiam casar por acaso).
+  const jid = String(remoteJid || '');
+  if (jid.includes('@g.us') || jid.includes('@broadcast') || jid.includes('@newsletter')) return null;
+
+  const phone = jid.replace(/@.*/, '').replace(/\D/g, '');
   if (!phone) return null;
   const admin = adminClient();
   const { data: contacts } = await admin

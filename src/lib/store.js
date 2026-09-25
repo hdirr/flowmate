@@ -89,6 +89,37 @@ async function runAutomations(event, payload) {
         }
       }
 
+      if (action.type === 'send_whatsapp_group' && (action.body || action.mediaUrl) && (action.groupIds?.length)) {
+        // Broadcast: dispara UMA vez por evento (não por lead). Grupos ignoram
+        // a pausa de automação (sem 409) — o envio sempre passa.
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (token) {
+          const { data: groups } = await supabase
+            .from('whatsapp_groups')
+            .select('jid')
+            .eq('instance_name', `flowmate-${cid()}`)
+            .in('jid', action.groupIds);
+          const msg = (action.body || '').replace(/\{nome\}/gi, '');
+          for (const g of (groups || [])) {
+            if (action.mediaUrl) {
+              await fetch('/api/whatsapp/send-media', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ to: g.jid, mediaUrl: action.mediaUrl, mediaType: action.mediaType, mimeType: action.mimeType, fileName: action.fileName, caption: msg || undefined, sender: 'automation' }),
+              }).catch(() => {});
+            } else {
+              await fetch('/api/whatsapp/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ to: g.jid, message: msg, sender: 'automation' }),
+              }).catch(() => {});
+            }
+          }
+        }
+        changed = true;
+      }
+
       if (action.type === 'add_tag' && action.tag && payload.contact_id) {
         const { data: contact } = await supabase.from('crm_contacts').select('tags').eq('id', payload.contact_id).single();
         const tags = contact?.tags || [];

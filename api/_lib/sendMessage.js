@@ -29,8 +29,14 @@ export async function sendMessage({ companyId, to, sender, actorUserId = null, c
   }
 
   const admin = adminClient();
-  const number = toWhatsAppNumber(to);
-  const remoteJid = jidFor(number);
+
+  // ─── Grupo ou 1:1? ───
+  // JID de grupo (termine em @g.us) NÃO passa por toWhatsAppNumber/jidFor —
+  // a normalização quebraria os dígitos do grupo. Grupos também IGNORAM a pausa
+  // automático/humano (decisão de produto): o enforcement (409) vale só em 1:1.
+  const isGroup = String(to || '').includes('@g.us');
+  const number = isGroup ? String(to).trim() : toWhatsAppNumber(to);
+  const remoteJid = isGroup ? number : jidFor(number);
   const instanceName = instanceNameFor(companyId);
 
   const conversation = await getOrCreateConversation(companyId, remoteJid);
@@ -39,7 +45,8 @@ export async function sendMessage({ companyId, to, sender, actorUserId = null, c
   // A pausa é imposta no ponto de saída, não checada pelo consumidor.
   // Sem isso, o n8n lê "automation", leva 4s no RAG, e dispara por cima do humano
   // que assumiu a conversa nesse meio-tempo. Não teve bug — a flag foi lida antes da pausa existir.
-  if (sender === STATE.AUTOMATION && conversation.state === STATE.HUMAN) {
+  // (Grupos pulam esta checagem: `isGroup` é false para chamadas de 1:1.)
+  if (!isGroup && sender === STATE.AUTOMATION && conversation.state === STATE.HUMAN) {
     return { error: 'conversation_paused', status: 409, conversationId: conversation.id };
   }
 
@@ -82,6 +89,7 @@ export async function sendMessage({ companyId, to, sender, actorUserId = null, c
     conversation_id: conversation.id,
     instance_name: instanceName,
     remote_jid: remoteJid,
+    participant_jid: null,
     from_me: true,
     message_type: media ? media.type : 'text',
     content: content || (media?.type === 'image' ? '[imagem]' : media?.type === 'video' ? '[vídeo]' : '[documento]'),
@@ -95,8 +103,9 @@ export async function sendMessage({ companyId, to, sender, actorUserId = null, c
 
   // ─── Transição: humano digitou → conversa vira human ───
   // Automático. Não obriga a clicar num botão antes — ele vai esquecer,
-  // e a automação vai atropelar.
-  if (sender === STATE.HUMAN && conversation.state !== STATE.HUMAN) {
+  // e a automação vai atropelar. (Grupos ficam sempre em automation de exibição;
+  // a pausa não existe para eles.)
+  if (!isGroup && sender === STATE.HUMAN && conversation.state !== STATE.HUMAN) {
     await setConversationState(conversation.id, STATE.HUMAN, actorUserId);
   }
 

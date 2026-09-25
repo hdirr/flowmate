@@ -57,6 +57,8 @@ export default function NewArrivals() {
     const seen = new Set();
     const list = [];
     for (const m of (msgs || [])) {
+      // Mensagens de grupo/newsletter não são novos contatos.
+      if (String(m.remote_jid || '').includes('@g.us')) continue;
       const phone = m.remote_jid?.replace(/@.*/, '');
       const k = phoneKey(phone);
       if (!k || known.has(k) || skip.has(k) || seen.has(k)) continue;
