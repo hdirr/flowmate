@@ -657,15 +657,14 @@ async function handleGroups(req, res) {
 
 // ─── roteador ───────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
-  const path = (req.query?.path || []).join('/');
-
-  // DEBUG TEMPORÁRIO — remover depois de diagnosticar o roteamento em produção.
-  console.log('[whatsapp/router-debug]', JSON.stringify({
-    url: req.url,
-    method: req.method,
-    rawQueryPath: req.query?.path,
-    resolvedPath: path,
-  }));
+  // req.query.path às vezes vem vazio (Vercel entrega o segmento como
+  // req.query['...path'] fora de alguns contextos) — mesmo fallback usado
+  // em api/v1/[...path].js e api/billing/[...path].js: deriva de req.url.
+  const segments = req.query?.path;
+  let path = Array.isArray(segments) ? segments.join('/') : (segments || '');
+  if (!path) {
+    path = (req.url || '').split('?')[0].replace(/^\/(api\/)?whatsapp\//, '').replace(/\/+$/, '');
+  }
 
   const routes = {
     'connect': handleConnect,
