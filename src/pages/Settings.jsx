@@ -121,8 +121,11 @@ export default function Settings() {
       const data = await res.json();
       if (data.connected) {
         await fetchWaStatus();
-      } else if (data.qr) {
+      } else if (typeof data.qr === 'string' && data.qr) {
         setWaQr(data.qr);
+      } else if (data.qr) {
+        // Formato inesperado (não-string) — evita quebrar a tela inteira em .startsWith.
+        setWaError(`Formato de QR inesperado na resposta: ${JSON.stringify(data.qr)}`);
       } else {
         setWaError(data.error || `Sem QR code na resposta: ${JSON.stringify(data)}`);
       }
@@ -385,7 +388,7 @@ return $input.all();`}</pre>
                 <div className="py-4">
                   <p className="text-sm text-gray-500 mb-4">Abra o WhatsApp no celular → Dispositivos conectados → Conectar dispositivo → Escaneie o QR code</p>
                   <div className="flex justify-center mb-4">
-                    {waQr.startsWith('data:') ? (
+                    {typeof waQr === 'string' && waQr.startsWith('data:') ? (
                       <img src={waQr} alt="QR Code WhatsApp" className="w-56 h-56 rounded-xl border border-gray-100" />
                     ) : (
                       <QRCode value={waQr} size={220} logoImage="/logo.png" logoWidth={40} />

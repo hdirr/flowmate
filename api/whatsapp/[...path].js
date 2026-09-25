@@ -108,7 +108,11 @@ async function handleConnect(req, res) {
   async function fetchQr() {
     const r = await evo(`/instance/connect/${instanceName}`);
     const d = r.json || {};
-    const qr = d?.base64 || d?.code || d?.qrcode?.base64 || d?.qrcode?.code;
+    const rawQr = d?.base64 ?? d?.code ?? d?.qrcode?.base64 ?? d?.qrcode?.code;
+    // Garante string: se a Evolution mudar o formato (ex.: objeto em vez de
+    // string), o front quebra ao chamar .startsWith — melhor cair no erro
+    // 400 abaixo (com o corpo cru pra debug) do que derrubar a página.
+    const qr = typeof rawQr === 'string' ? rawQr : null;
     if (qr) return { qr, recoverable: false, raw: '' };
     if (!r.ok) {
       const recoverable = r.status === 404 || /not found|n[aã]o exist|n[aã]o encontrada|inexistente/i.test(r.text);
