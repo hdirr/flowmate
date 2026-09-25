@@ -659,6 +659,14 @@ async function handleGroups(req, res) {
 export default async function handler(req, res) {
   const path = (req.query?.path || []).join('/');
 
+  // DEBUG TEMPORÁRIO — remover depois de diagnosticar o roteamento em produção.
+  console.log('[whatsapp/router-debug]', JSON.stringify({
+    url: req.url,
+    method: req.method,
+    rawQueryPath: req.query?.path,
+    resolvedPath: path,
+  }));
+
   const routes = {
     'connect': handleConnect,
     'send': handleSend,
