@@ -15,6 +15,26 @@ import { dispatchWebhook } from '../_lib/webhooks.js';
 const EVOLUTION_URL = process.env.EVOLUTION_API_URL;
 const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY;
 
+// Chamada à Evolution com log para diagnóstico. Em sucesso loga só o status;
+// em falha loga o corpo (sanitizado de segredos) — erro da Evolution vira
+// causa visível nos logs do Vercel em vez de black box.
+async function evo(path, { method = 'GET', body } = {}) {
+  const res = await fetch(`${EVOLUTION_URL}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
+    body: body ? JSON.stringify(body) : undefined,
+  }).catch(() => null);
+  if (!res) return { ok: false, status: 0, text: 'rede indisponível', json: null };
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* corpo não-JSON (ex.: página de erro) */ }
+  if (!res.ok) {
+    const sanitized = text.replace(/(secret=)[^&\s"']+/gi, '$1***').slice(0, 1200);
+    console.error(`[whatsapp] ${method} ${path} falhou (${res.status}): ${sanitized}`);
+  }
+  return { ok: res.ok, status: res.status, text, json };
+}
+
 // ─── connect ────────────────────────────────────────────────────────────────
 async function handleConnect(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -45,41 +65,35 @@ async function handleConnect(req, res) {
     ? `${process.env.APP_URL}/api/whatsapp/webhook?secret=${process.env.WEBHOOK_SECRET}`
     : `${process.env.APP_URL}/api/whatsapp/webhook`;
 
-  // Tenta criar instância (ignora erro se já existe)
-  await fetch(`${EVOLUTION_URL}/instance/create`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
-    body: JSON.stringify({
-      instanceName,
-      integration: 'WHATSAPP-BAILEYS',
-      webhook: { url: webhookUrl, enabled: true, events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT'] },
-    }),
-  }).catch(() => {});
-
-  // Garante webhook configurado na instância existente
-  await fetch(`${EVOLUTION_URL}/webhook/set/${instanceName}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
-    body: JSON.stringify({ url: webhookUrl, enabled: true, events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT'] }),
-  }).catch(() => {});
+  // Garante instância: cria se faltar (erro tolerado — pode já existir) e
+  // (re)configura o webhook. Falhas da Evolution agora ficam nos logs.
+  async function ensureInstance() {
+    await evo('/instance/create', {
+      method: 'POST',
+      body: {
+        instanceName,
+        integration: 'WHATSAPP-BAILEYS',
+        webhook: { url: webhookUrl, enabled: true, events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT'] },
+      },
+    });
+    await evo(`/webhook/set/${instanceName}`, {
+      method: 'POST',
+      body: { url: webhookUrl, enabled: true, events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT'] },
+    });
+  }
+  await ensureInstance();
 
   // Verifica estado de conexão atual
-  const stateRes = await fetch(`${EVOLUTION_URL}/instance/connectionState/${instanceName}`, {
-    headers: { 'apikey': EVOLUTION_KEY },
-  }).catch(() => null);
-
-  if (stateRes?.ok) {
-    const stateData = await stateRes.json();
-    const state = stateData?.instance?.state || stateData?.state;
-    if (state === 'open') {
-      // Já conectado — atualiza banco e retorna status
-      await admin.from('whatsapp_instances').upsert({
-        company_id: profile.company_id,
-        instance_name: instanceName,
-        status: 'connected',
-      }, { onConflict: 'company_id' });
-      return res.status(200).json({ connected: true, instanceName });
-    }
+  const stateRes = await evo(`/instance/connectionState/${instanceName}`);
+  const state = stateRes.json?.instance?.state || stateRes.json?.state;
+  if (stateRes.ok && state === 'open') {
+    // Já conectado — atualiza banco e retorna status
+    await admin.from('whatsapp_instances').upsert({
+      company_id: profile.company_id,
+      instance_name: instanceName,
+      status: 'connected',
+    }, { onConflict: 'company_id' });
+    return res.status(200).json({ connected: true, instanceName });
   }
 
   // Salva instância como desconectada
@@ -89,18 +103,32 @@ async function handleConnect(req, res) {
     status: 'disconnected',
   }, { onConflict: 'company_id' });
 
-  // Pega QR code
-  const qrRes = await fetch(`${EVOLUTION_URL}/instance/connect/${instanceName}`, {
-    headers: { 'apikey': EVOLUTION_KEY },
-  });
-  const qrData = await qrRes.json();
-  const qr = qrData?.base64 || qrData?.code || qrData?.qrcode?.base64 || qrData?.qrcode?.code;
-
-  if (!qr) {
-    return res.status(400).json({ error: `Sem QR na resposta da API: ${JSON.stringify(qrData)}` });
+  // Pega QR code, com auto-recuperação: se a instância não existe (estado
+  // corrompido/removida) o connect responde 404/erro — recria e tenta de novo.
+  async function fetchQr() {
+    const r = await evo(`/instance/connect/${instanceName}`);
+    const d = r.json || {};
+    const qr = d?.base64 || d?.code || d?.qrcode?.base64 || d?.qrcode?.code;
+    if (qr) return { qr, recoverable: false, raw: '' };
+    if (!r.ok) {
+      const recoverable = r.status === 404 || /not found|n[aã]o exist|n[aã]o encontrada|inexistente/i.test(r.text);
+      return { qr: null, recoverable, raw: `(${r.status}) ${r.text}` };
+    }
+    return { qr: null, recoverable: false, raw: `(200) ${r.text}` };
   }
 
-  return res.status(200).json({ qr, instanceName });
+  let attempt = await fetchQr();
+  if (!attempt.qr && attempt.recoverable) {
+    console.warn('[whatsapp] instância não encontrada no connect — recriando e tentando de novo');
+    await ensureInstance();
+    attempt = await fetchQr();
+  }
+
+  if (!attempt.qr) {
+    return res.status(400).json({ error: `Sem QR na resposta da API: ${attempt.raw || 'resposta vazia'}` });
+  }
+
+  return res.status(200).json({ qr: attempt.qr, instanceName });
 }
 
 // ─── send ───────────────────────────────────────────────────────────────────
@@ -568,6 +596,7 @@ async function handleGroups(req, res) {
 
   const { name, description, participantIds } = req.body || {};
   if (!name || !Array.isArray(participantIds) || participantIds.length === 0) {
+    console.error('[whatsapp/groups] validação falhou — payload recebido:', JSON.stringify(req.body));
     return res.status(400).json({ error: 'Nome e participantes são obrigatórios' });
   }
 
