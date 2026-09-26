@@ -167,7 +167,7 @@ export default function Chats() {
   const loadMessages = useCallback(async () => {
     if (!instance) return;
     const instName = instance.instance_name || instance.instanceName;
-    const [{ data: msgs }, crm, grps] = await Promise.all([
+    const [{ data: msgs }, crm, { data: grps }] = await Promise.all([
       supabase.from('whatsapp_messages').select('*').eq('instance_name', instName).order('timestamp', { ascending: true }),
       db.contacts.list(),
       supabase.from('whatsapp_groups').select('*').eq('instance_name', instName).order('updated_at', { ascending: false }),
