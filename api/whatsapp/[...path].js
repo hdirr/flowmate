@@ -297,6 +297,7 @@ async function handleSync(req, res) {
     .slice(0, 60);
 
   // Grupos — descobridos separadamente para registrar em whatsapp_groups
+  const groupRows = new Map();
   let groupsSynced = 0;
 
   const discoveryRes = await fetch(`${EVOLUTION_URL}/group/findGroups/${instanceName}`, {
@@ -311,13 +312,13 @@ async function handleSync(req, res) {
       const jid = g?.id || g?.jid || g?.remoteJid;
       const name = g?.subject || g?.name || g?.groupName || jid;
       if (!jid || !String(jid).includes('@g.us')) continue;
-      await admin.from('whatsapp_groups').upsert({
+      groupRows.set(jid, {
         company_id: profile.company_id,
         instance_name: instanceName,
         jid,
         name,
         description: g?.description || null,
-      }, { onConflict: 'company_id,jid' });
+      });
       groupsSynced++;
     }
   }
@@ -330,120 +331,110 @@ async function handleSync(req, res) {
     })
     .slice(0, 30);
 
-  let imported = 0;
-
-  for (const chat of individualChats) {
-    const jid = chat.remoteJid;
-
-    const msgsRes = await fetch(`${EVOLUTION_URL}/chat/findMessages/${instanceName}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
-      body: JSON.stringify({ where: { key: { remoteJid: jid } }, limit: 30 }),
-    });
-
-    if (!msgsRes.ok) continue;
-
-    const msgsData = await msgsRes.json();
-    const records = msgsData?.messages?.records || [];
-
-    for (const msg of records) {
-      const key = msg.key || {};
-      const fromMe = key.fromMe ?? false;
-      const messageId = key.id || msg.id;
-
-      const content =
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text ||
-        msg.message?.imageMessage?.caption ||
-        msg.message?.videoMessage?.caption ||
-        msg.message?.documentMessage?.fileName ||
-        null;
-
-      if (!content) continue;
-
-      // Usa remoteJidAlt (número real) se disponível, senão usa o jid original
-      const displayJid = key.remoteJidAlt || jid;
-      const contactName = msg.pushName || chat.pushName || chat.name || displayJid.replace(/@.*/, '');
-      const timestamp = msg.messageTimestamp || Math.floor(Date.now() / 1000);
-
-      await admin.from('whatsapp_messages').upsert({
+  // Garante o grupo cadastrado mesmo que findGroups não o tenha retornado
+  for (const chat of groupChats) {
+    if (!groupRows.has(chat.remoteJid)) {
+      groupRows.set(chat.remoteJid, {
         company_id: profile.company_id,
         instance_name: instanceName,
-        remote_jid: displayJid,
-        from_me: fromMe,
-        message_type: 'text',
-        content,
-        timestamp,
-        contact_name: contactName,
-        status: fromMe ? 'sent' : 'received',
-        message_id: messageId,
-      }, { onConflict: 'message_id', ignoreDuplicates: true });
-
-      imported++;
+        jid: chat.remoteJid,
+        name: chat.name || chat.pushName || chat.remoteJid,
+      });
     }
   }
 
-  for (const chat of groupChats) {
-    const jid = chat.remoteJid;
+  if (groupRows.size) {
+    const groupList = [...groupRows.values()];
+    for (let i = 0; i < groupList.length; i += 500) {
+      await admin.from('whatsapp_groups').upsert(groupList.slice(i, i + 500), { onConflict: 'company_id,jid' });
+    }
+  }
 
-    // Garante o grupo cadastrado mesmo que findGroups não o tenha retornado
-    await admin.from('whatsapp_groups').upsert({
+  // Busca as mensagens dos chats em PARALELO (concorrência limitada) em vez de
+  // um-a-um — 90 chamadas sequenciais à Evolution viravam uma eternidade.
+  const CONCURRENCY = 8;
+  const MESSAGE_LIMIT = 30;
+
+  function buildRow({ chat, msg, isGroup }) {
+    const key = msg.key || {};
+    const fromMe = key.fromMe ?? false;
+    const messageId = key.id || msg.id;
+
+    const content =
+      msg.message?.conversation ||
+      msg.message?.extendedTextMessage?.text ||
+      msg.message?.imageMessage?.caption ||
+      msg.message?.videoMessage?.caption ||
+      msg.message?.documentMessage?.fileName ||
+      null;
+
+    if (!content) return null;
+
+    // Usa remoteJidAlt (número real) se disponível, senão usa o jid original
+    const displayJid = key.remoteJidAlt || chat.remoteJid;
+    const participantJid = isGroup ? (key.participant || null) : null;
+    const contactName = isGroup
+      ? (msg.pushName || (participantJid ? participantJid.replace(/@.*/, '') : chat.name || displayJid.replace(/@.*/, '')))
+      : (msg.pushName || chat.pushName || chat.name || displayJid.replace(/@.*/, ''));
+    const timestamp = msg.messageTimestamp || Math.floor(Date.now() / 1000);
+
+    return {
       company_id: profile.company_id,
       instance_name: instanceName,
-      jid,
-      name: chat.name || chat.pushName || jid,
-    }, { onConflict: 'company_id,jid' });
-
-    const msgsRes = await fetch(`${EVOLUTION_URL}/chat/findMessages/${instanceName}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
-      body: JSON.stringify({ where: { key: { remoteJid: jid } }, limit: 30 }),
-    });
-
-    if (!msgsRes.ok) continue;
-
-    const msgsData = await msgsRes.json();
-    const records = msgsData?.messages?.records || [];
-
-    for (const msg of records) {
-      const key = msg.key || {};
-      const fromMe = key.fromMe ?? false;
-      const messageId = key.id || msg.id;
-
-      const content =
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text ||
-        msg.message?.imageMessage?.caption ||
-        msg.message?.videoMessage?.caption ||
-        msg.message?.documentMessage?.fileName ||
-        null;
-
-      if (!content) continue;
-
-      const displayJid = key.remoteJidAlt || jid;
-      const participantJid = key.participant || null;
-      const contactName = msg.pushName || (participantJid ? participantJid.replace(/@.*/, '') : chat.name || displayJid.replace(/@.*/, ''));
-      const timestamp = msg.messageTimestamp || Math.floor(Date.now() / 1000);
-
-      await admin.from('whatsapp_messages').upsert({
-        company_id: profile.company_id,
-        instance_name: instanceName,
-        remote_jid: displayJid,
-        participant_jid: participantJid,
-        from_me: fromMe,
-        message_type: 'text',
-        content,
-        timestamp,
-        contact_name: contactName,
-        status: fromMe ? 'sent' : 'received',
-        message_id: messageId,
-      }, { onConflict: 'message_id', ignoreDuplicates: true });
-
-      imported++;
-    }
+      remote_jid: displayJid,
+      participant_jid: participantJid,
+      from_me: fromMe,
+      message_type: 'text',
+      content,
+      timestamp,
+      contact_name: contactName,
+      status: fromMe ? 'sent' : 'received',
+      message_id: messageId,
+    };
   }
 
-  return res.status(200).json({ ok: true, chats: individualChats.length, groups: groupsSynced, imported });
+  async function fetchChatMessages(chats, isGroup) {
+    const rows = [];
+    const queue = [...chats];
+
+    async function worker() {
+      while (queue.length) {
+        const chat = queue.shift();
+        const msgsRes = await evo(`/chat/findMessages/${instanceName}`, {
+          method: 'POST',
+          body: { where: { key: { remoteJid: chat.remoteJid } }, limit: MESSAGE_LIMIT },
+        });
+        if (!msgsRes.ok || !msgsRes.json) continue;
+        const records = msgsRes.json?.messages?.records || [];
+        for (const msg of records) {
+          const row = buildRow({ chat, msg, isGroup });
+          if (row) rows.push(row);
+        }
+      }
+    }
+
+    const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, () => worker());
+    await Promise.all(workers);
+    return rows;
+  }
+
+  const [individualRows, groupRowsFromChats] = await Promise.all([
+    fetchChatMessages(individualChats, false),
+    fetchChatMessages(groupChats, true),
+  ]);
+
+  const allRows = [...individualRows, ...groupRowsFromChats];
+
+  // Upsert em LOTE (dedup por message_id), com chunks de 500 para respeitar o
+  // limite de linhas por request do PostgREST.
+  for (let i = 0; i < allRows.length; i += 500) {
+    await admin.from('whatsapp_messages').upsert(allRows.slice(i, i + 500), {
+      onConflict: 'message_id',
+      ignoreDuplicates: true,
+    });
+  }
+
+  return res.status(200).json({ ok: true, chats: individualChats.length, groups: groupsSynced, imported: allRows.length });
 }
 
 // ─── webhook ────────────────────────────────────────────────────────────────

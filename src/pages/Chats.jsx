@@ -113,6 +113,7 @@ function GroupAvatar({ name, isGroup, className = '' }) {
 export default function Chats() {
   const [searchParams] = useSearchParams();
   const autoSelectedRef = useRef(null);
+  const autoSyncedRef = useRef(false);
   const [instance, setInstance] = useState(null);
   const [loadingInstance, setLoadingInstance] = useState(true);
   const [messages, setMessages] = useState([]);
@@ -180,6 +181,13 @@ export default function Chats() {
     setGroups(allGroups);
     setConversations(groupByContact(allMsgs, allContacts));
     setGroupConvs(groupByGroups(allMsgs, allGroups));
+
+    // Instância conectada e nenhuma mensagem no banco → importa o histórico
+    // automaticamente uma vez (em vez de obrigar o usuário a achar o botão).
+    if (instance.status === 'connected' && !allMsgs.length && !autoSyncedRef.current) {
+      autoSyncedRef.current = true;
+      syncMessages();
+    }
   }, [instance]);
 
   // ─── Estado da conversa (automação | humano) — só vale em 1:1 ───
