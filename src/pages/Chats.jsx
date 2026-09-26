@@ -162,7 +162,6 @@ export default function Chats() {
   useEffect(() => { groupsRef.current = groups; }, [groups]);
   useEffect(() => { historyByJidRef.current = historyByJid; }, [historyByJid]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
-  useEffect(() => { loadMessagesRef.current = loadMessages; }, [loadMessages]);
 
   // Preserva a posição do scroll ao anexar mensagens antigas (o conteúdo
   // cresce pra cima; somar o delta mantém o ponto de leitura no lugar).
@@ -220,6 +219,8 @@ export default function Chats() {
       syncMessages();
     }
   }, [instance]);
+
+  useEffect(() => { loadMessagesRef.current = loadMessages; }, [loadMessages]);
 
   // ─── Estado da conversa (automação | humano) — só vale em 1:1 ───
   const loadConvState = useCallback(async (phone) => {
