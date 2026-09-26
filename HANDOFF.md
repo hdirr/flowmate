@@ -2,7 +2,9 @@
 
 > Documento vivo pra retomar o projeto em sessão nova, com contexto zerado.
 > **Sem segredos aqui** — chaves ficam nas env vars do Vercel / painéis.
-> Última atualização: 2026-09-25.
+> Última atualização: 2026-09-26.
+>
+> **URGENTE (WhatsApp):** o WhatsApp está conectado, mas sem histórico e o webhook de mensagens novas só volta a funcionar depois do deploy do fix do formato v2 (ver "WhatsApp — como as mensagens fluem" e PENDÊNCIAS A0). Depois disso: importar conversas, testar mensagem recebida e, se preciso, reconectar o número pro WhatsApp reenviar o histórico.
 >
 > **PRÓXIMO OBJETIVO (a fazer):** criar uma **integração para equipe de marketing** dentro do produto
 > (o usuário quer "incorporar" isso ao FlowMate). Ainda não especificado — levantar requisitos primeiro.
@@ -15,17 +17,17 @@ Produção: **https://flowmate-ashy.vercel.app**
 - **Frontend:** React + Vite + Tailwind (`src/`). Deploy estático no Vercel.
 - **Backend:** funções serverless do Vercel em `api/*` (Node). Usam `service_role` do Supabase.
 - **Banco/Auth:** Supabase (projeto `fwtnzxehfaqeklueojkp`). Multi-tenant por `company_id` (company = tenant).
-- **WhatsApp:** Evolution API self-hosted no **Railway** (`evolution-api-production-3a96.up.railway.app`). Uma instância por empresa: `flowmate-{company_id}`.
-- **Pagamento:** **Asaas** (hoje em **sandbox**). Checkout hospedado + webhook.
-- **Repo:** `github.com/hdirr/flowmate` (público), branch `main`, auto-deploy no push.
-  - Push: `git push https://hdirr:<PAT>@github.com/hdirr/flowmate.git main`
+- **WhatsApp:** Evolution API **v2.3.7** (imagem `evoapicloud/evolution-api:latest` — ⚠️ sem versão fixa) self-hosted no **Railway**, projeto `triumphant-unity` (serviços: `evolution-api`, Postgres, Redis), domínio `evolution-api-production-3a96.up.railway.app`. Uma instância por empresa: `flowmate-{company_id}`. Plano Railway **Hobby** (o trial acabou em ago/2026). Ver "Incidente Railway".
+- **Pagamento:** **AbacatePay v1** (chave `abc_dev_` de teste; KYC em análise). Asaas é legado, saindo. Detalhes em PENDÊNCIAS nº 1.
+- **Repo:** `github.com/hdirr/flowmate` (público), branch `main`, auto-deploy no push. **Pasta local real: `C:\Users\lenovo\Agadir\FlowMate`** (a pasta `C:\Users\lenovo\FlowMate` é quase vazia, não é o repo).
+  - Push: `git push origin main` (credencial já configurada na máquina; não colocar token na URL do remote).
 
 ### Proxy Supabase (importante)
 O provedor do Agadir bloqueia o TLD `.co`, então TODAS as chamadas Supabase passam por `/sb-proxy` (rewrite no `vercel.json`). Por isso o **Realtime (WebSocket) foi desativado** — usa-se **polling**. Solução definitiva futura: domínio próprio pro Supabase.
 
-## Limite crítico: Vercel Hobby = 12 serverless functions (ESTAMOS EM 12/12)
+## Limite crítico: Vercel Hobby = 12 serverless functions (hoje 7 arquivos, graças aos catch-alls)
 Não crie novos arquivos em `api/` sem consolidar. Rotas novas vão em catch-alls (`[...path].js`).
-Funções atuais (7 arquivos): `users`, `public/lead`, `conversations/state`, `integrations/emit`, `v1/[...path]`, `billing/[...path]`, `whatsapp/[...path]` (catch-all único: connect, send, send-media, status, sync, webhook, groups — os 6 arquivos antigos foram removidos).
+Funções atuais (7 arquivos): `users`, `public/lead`, `conversations/state`, `integrations/emit`, `v1/[...path]`, `billing/[...path]`, `whatsapp/[...path]` (catch-all único, rotas: `connect`, `send`, `send-media`, `status`, `sync`, `webhook`, `groups`, `history` — os 6 arquivos antigos foram removidos).
 Compartilhados (não contam): `api/_lib/{db,conversations,sendMessage,webhooks,plans,v1handlers}.js`.
 
 ## Env vars no Vercel (nomes; valores só no painel)
@@ -50,10 +52,10 @@ Compartilhados (não contam): `api/_lib/{db,conversations,sendMessage,webhooks,p
 ## Fluxo de venda: PAGAMENTO-PRIMEIRO (implementado)
 ```
 Landing → "Assinar {nível}"
-  → /assinar (Checkout: nome + email + CPF)          src/pages/Checkout.jsx
-  → POST /api/billing/start (cria cliente+assinatura Asaas, grava pending_signups)
-  → checkout hospedado da Asaas (aba nova) → cliente paga
-  → Asaas → POST /api/billing/webhook (valida token) → pending_signups.status='paid'
+  → /assinar (Checkout: nome + email + CPF + celular/WhatsApp)          src/pages/Checkout.jsx
+  → POST /api/billing/start (cria cobrança AbacatePay, grava pending_signups)
+  → checkout hospedado da AbacatePay (aba nova) → cliente paga
+  → AbacatePay → POST /api/billing/webhook (valida ?webhookSecret=) → pending_signups.status='paid'
   → /ativar (poll status; quando paid: nome empresa + nome + senha)   src/pages/Activate.jsx
   → POST /api/billing/activate → cria usuário (email_confirm:true, SEM link) + empresa (register_company) + plano ACTIVE
   → login automático → dashboard, já cria leads
@@ -66,10 +68,14 @@ Landing → "Assinar {nível}"
 - `conversations` (state automation|human) + `conversation_id`/`sender` em `whatsapp_messages`
 - `crm_contacts.external_id` (idempotência)
 - `company_integrations` (+ `webhook_secret`)
-- `companies`: `subscription_status, plan_level, plan_tier, plan_cycle, line_cap, asaas_customer_id, asaas_subscription_id, current_period_end`
+- `companies`: `subscription_status, plan_level, plan_tier, plan_cycle, line_cap, current_period_end, abacate_customer_id, abacate_billing_id` (+ colunas `asaas_*` legadas)
 - `pending_signups`
 - `whatsapp_instances`, `whatsapp_messages` (+ `media_url`, `file_name`, `message_id`)
-- `ignored_arrivals` (novos contatos ignorados) — rodar `supabase_ignored_arrivals.sql`
+- `ignored_arrivals` (novos contatos ignorados) — `supabase_ignored_arrivals.sql`
+- `whatsapp_groups` — `supabase_groups.sql` (2026-09-25)
+- Colunas de assinatura em `companies`/`pending_signups` — `supabase_billing_columns.sql` (2026-09-25)
+- Colunas `abacate_*` — `supabase_abacate.sql` (confirmar que rodou)
+- **NÃO RODADA (2026-09-26):** `supabase_whatsapp_cache.sql` (`updated_at` + trigger em `whatsapp_instances`; habilita o cache de 45s do `/status`)
 
 ---
 
@@ -104,19 +110,27 @@ select company_id, api_key, webhook_secret from company_integrations where compa
 ```
 7) **WhatsApp:** o dono loga no FlowMate → Configurações → WhatsApp → Conectar → escaneia o QR.
 
-### Cliente em andamento
-- **Clínica do Rafael** (parceria **Atimos**): atendida por **agente de IA externo** via n8n em
-  `https://n8n.atimosbrasil.com/webhook/flowmate`, assinando **só `message.received`**.
-  Fluxo: webhook assinado → n8n → agente → responde via `POST /v1/messages` (respeita o 409 se humano assumir).
+### Clientes
+- Nenhum cliente externo ativo. A **Clínica do Rafael** (parceria Atimos, company `f8a5a268-…`) foi **encerrada em 2026-09-26** — sem mais vínculo; empresa, instância Evolution e usuários marcados para exclusão.
 
 ## Grupos de WhatsApp (feature pronta, 2026-09)
 Criação pela UI em `src/pages/Chats.jsx` (participantes = só contatos do CRM), chat de grupo com texto/mídia, filtro Todas|Conversas|Grupos, grupo ignora a regra de pausa `automation|human`. Automação **"Enviar p/ grupo"** (`send_whatsapp_group` em `Automations.jsx` + `lib/store.js`, `sender:'automation'`). Rotas `GET/POST /api/whatsapp/groups`. Filtros `@g.us` em `NewArrivals.jsx`/`NotificationBell.jsx`; `_lib/conversations.js` ignora `@g.us/@broadcast/@newsletter` para contatos. Migrações já rodadas: `supabase_groups.sql` (tabela `whatsapp_groups`) e `supabase_billing_columns.sql` (colunas de assinatura em `companies`/`pending_signups`; resolveu o 400 do shell do app).
 
-## Estado do deploy (2026-09-25)
-Roteamento do catch-all do WhatsApp corrigido e verificado em produção (`c2ab1dd`), QR tipado (`3acb696`). Conectar WhatsApp → QR depende da Evolution no Railway estar de pé (ver gotcha acima); o usuário reportou que passou a funcionar, **confirmação do escaneamento do QR é do usuário** (exige login).
+## WhatsApp — como as mensagens fluem (estado pós 2026-09-25)
+- **Supabase guarda só os últimos 7 dias** (`whatsapp_messages`). A **Evolution é o arquivo completo**. `Chats.jsx` carrega a janela de 7d; ao rolar pra cima faz **scroll infinito** via `POST /api/whatsapp/history` (`{jid,page,limit,beforeTs}`), que lê a Evolution paginado e **não persiste** no Supabase.
+- **Entrada em tempo real:** webhook `messages.upsert` → `handleWebhook` (grava em `whatsapp_messages`, dedup por `message_id`). Polling do front por **id** a cada 3s.
+- **Sync (`POST /api/whatsapp/sync`, botão "Importar conversas"):** paralelo (`CONCURRENCY=8`), busca chats/grupos/mensagens na Evolution, upsert em lote (chunks de 500), filtra `timestamp >= CUTOFF (7d)`. **Prune:** apaga do Supabase só por **idade** (> 7d + 2d de margem), nunca por "não veio neste fetch", e **só roda se a Evolution devolveu chats** (trava contra Evolution vazia/fora do ar). Logs `[synctrace <id>] ...` (rótulo único por chamada). O sync também refaz o `webhook/set` (auto-heal).
+- **Webhook da Evolution v2:** o corpo de `/webhook/set` e do `/instance/create` usa o helper `webhookConfig()` → `{ webhook: { enabled, url, byEvents:false, base64:false, events:['CONNECTION_UPDATE','MESSAGES_UPSERT'] } }`. Corpo "plano" (sem o objeto `webhook`) dá 400 `instance requires property "webhook"` e as mensagens novas deixam de chegar.
+- **`/status` com cache de 45s** (lê `whatsapp_instances.updated_at`, mantido por trigger). Exige rodar `supabase_whatsapp_cache.sql`; sem a coluna ele cai no caminho lento (Evolution) — **a migração ainda NÃO foi rodada** (o app funciona, só sem o cache).
+- **Chats:** ao conectar com banco vazio, faz auto-import uma vez. Aba "Conversas" só lista contatos do CRM (por design); "Todas" mistura grupos.
+
+## Incidente Railway (2026-08 → 09)
+O trial do Railway acabou no início de agosto e derrubou Postgres/Redis/Evolution. Em 2026-09-25 o plano Hobby foi ativado e tudo redeployado; o Postgres então crashou com `PANIC: could not write to file "pg_wal/...": No space left on device` (volume de **500 MB**, não corrupção). Volume ampliado para **5 GB** (teto do Hobby; cobra só pelo armazenado), Postgres e Evolution reiniciados. Sintoma no app: "Application not found" (borda do Railway) e depois Prisma `P1001`. **Efeito colateral:** o histórico que a Evolution tinha foi perdido; o WhatsApp só reenvia histórico **uma vez por pareamento**, então para repopular é preciso **reconectar o número (novo QR)**. Foi a sincronização de histórico que encheu os 500 MB.
+**A decidir (Railway, não é código):** ajustar `DATABASE_SAVE_*` da Evolution (`DATABASE_SAVE_DATA_HISTORIC`, `DATABASE_SAVE_MESSAGE_UPDATE`; mídia em S3 e não base64 no banco) — mas o `/history` e o sync dependem das mensagens guardadas na Evolution, então não desligar o que elas leem sem pensar; **fixar a versão da imagem** (hoje `:latest`); **monitorar o uso do volume**.
 
 ## PENDÊNCIAS / PRÓXIMOS PASSOS
-1. **Pagamento: migrando Asaas → AbacatePay** (resolve o branding/CNPJ no checkout). **Fase 1 (código PRONTO, teste devMode pendente):** `api/billing/[...path].js` reescrito pro AbacatePay v1 — cobrança avulsa `ONE_TIME` com produto **inline** (preço do `plans.js`, servidor manda), PIX; webhook `billing.paid` verificado por `?webhookSecret=`; correlação pelo `abacate_billing_id`. Contrato do front intacto (`start`→`{url,token}`). Migração `supabase_abacate.sql` (colunas `abacate_*`). **A confirmar em devMode:** se `customer.cellphone` é obrigatório (talvez precise coletar telefone no Checkout), shape exato do payload do webhook, e habilitar `methods:['CARD']`. **Fase 2 (a fazer):** assinatura automática no cartão (recorrência de verdade) = API **v2** (`/checkouts/create` frequency=SUBSCRIPTION, eventos `subscription.*`). **Go-live:** conta AbacatePay em verificação (KYC via Woovi, até 72h desde 2026-07-29); quando aprovada → trocar `ABACATEPAY_API_KEY` de teste pela de produção + `PUBLISHED=true`. Ver [[flowmate-payment-abacatepay]].
+A0. **WhatsApp pós-incidente (fazer primeiro):** (a) deploy do fix `webhookConfig()` e conferir que o sync não loga mais o 400 e que uma mensagem recebida gera `messages.upsert` nos logs de `/api/whatsapp/webhook`; (b) rodar `supabase_whatsapp_cache.sql` (ainda não rodou); (c) **Importar conversas**; (d) reconectar o número (novo QR) para repopular o histórico; (e) decidir `DATABASE_SAVE_*` da Evolution e **fixar a versão da imagem**; (f) acompanhar o uso do volume de 5 GB; (g) empresa **Clínica do Rafael** (`f8a5a268-…`, Atimos) **encerrada em 2026-09-26**: rodar o script de exclusão no Supabase (empresa + usuário `rafael@atimosbrasil.com`), apagar a instância `flowmate-f8a5a268-…` na Evolution e desativar o fluxo no n8n da Atimos. O provisionador/runbook segue valendo para clientes futuros.
+1. **Pagamento: migrando Asaas → AbacatePay** (resolve o branding/CNPJ no checkout). **Fase 1 (código PRONTO, teste devMode pendente):** `api/billing/[...path].js` reescrito pro AbacatePay v1 — cobrança avulsa `ONE_TIME` com produto **inline** (preço do `plans.js`, servidor manda), PIX; webhook `billing.paid` verificado por `?webhookSecret=`; correlação pelo `abacate_billing_id`. Contrato do front intacto (`start`→`{url,token}`). Migração `supabase_abacate.sql` (colunas `abacate_*`). O campo **Celular/WhatsApp** já é coletado no Checkout e validado no servidor (`customer.cellphone` é obrigatório no AbacatePay — commit `bf620eb`). **A confirmar em devMode:** shape exato do payload do webhook e habilitar `methods:['CARD']`. **Fase 2 (a fazer):** assinatura automática no cartão (recorrência de verdade) = API **v2** (`/checkouts/create` frequency=SUBSCRIPTION, eventos `subscription.*`). **Go-live:** conta AbacatePay em verificação (KYC via Woovi, até 72h desde 2026-07-29); quando aprovada → trocar `ABACATEPAY_API_KEY` de teste pela de produção + `PUBLISHED=true`. Ver [[flowmate-payment-abacatepay]].
 2. **Ligar preço público:** `src/lib/pricing.js` → `PUBLISHED = false` → `true` (tira banner de prévia). Confirmar preços reais (hoje ilustrativos: essencial 149 / pro 249 / avançado 399 mensal na t1).
 3. **Multi-linha:** NÃO existe (um número por empresa). Só Faixa 1 à venda (`AVAILABLE_TIERS = ['t1']`). Quando construir, adicionar `t2`/`t3` e reativar UI de faixas + enforcement do teto (`line_cap`).
 4. **Blindagem pré-escala:** **RLS LIGADO** em 2 etapas.
@@ -127,15 +141,15 @@ Roteamento do catch-all do WhatsApp corrigido e verificado em produção (`c2ab1
 5. **Export de dados** do tenant (destrava a copy "seus dados são seus" na landing — hoje omitida por não existir).
 6. **Automações — implementar de verdade:** `send_email` (Resend), `wait_days` + gatilho `lead_inactive` (Vercel Cron). Estão marcados "em breve" na UI.
 7. **Confirmação de e-mail do Supabase:** está LIGADA (causou bug de redirect). O fluxo pagamento-primeiro contorna (cria user server-side). Se for usar signup direto algum dia, desligar em Authentication → Providers → Email, ou configurar Site URL = produção.
-8. **Provisionador de cliente (admin):** tela pra criar empresa + ativar + configurar integração + devolver as chaves num clique, substituindo o runbook SQL acima. Recomendado — vai onboardar várias clínicas (Atimos).
+8. **Provisionador de cliente (admin):** tela pra criar empresa + ativar + configurar integração + devolver as chaves num clique, substituindo o runbook SQL acima. Recomendado quando houver volume de clientes.
 9. **Publicar a doc de API como página** dentro do app (hoje é o `INTEGRATIONS.md` no repo). Útil pra vender o Pro.
 10. **Integração para equipe de marketing** — próximo objetivo do usuário, ainda a especificar.
 
 ## LIMPEZA pendente (dados de teste)
 - Contatos "Teste 409" e "Teste Idempotencia" no CRM.
-- Clientes/assinaturas de teste no Asaas sandbox.
+- Cobranças/clientes de teste no AbacatePay (devMode) e resíduos do Asaas sandbox.
 - Linhas de teste em `pending_signups`.
-- **Regenerar** chaves que passaram pelo chat: a API key de integração da empresa (Configurações → Integrações → ↻) e a chave sandbox do Asaas.
+- **Regenerar** chaves que passaram pelo chat: a API key de integração da empresa (Configurações → Integrações → ↻) e a chave sandbox do Asaas (legado).
 
 ## GOTCHAS (erros que já aconteceram — evitar de novo)
 - **Tela branca = ReferenceError de runtime** por variável órfã após refactor. O `vite build` NÃO pega (não é erro de sintaxe). **Antes de mandar testar após refactor grande, rode `grep` procurando referências órfãs.**

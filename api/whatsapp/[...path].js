@@ -35,6 +35,18 @@ async function evo(path, { method = 'GET', body } = {}) {
   return { ok: res.ok, status: res.status, text, json };
 }
 
+// Corpo do webhook no formato da Evolution v2: tudo dentro de `webhook`. Só os
+// eventos que o handler consome (menos eventos = menos invocações no Vercel).
+function webhookConfig(url) {
+  return {
+    enabled: true,
+    url,
+    byEvents: false,
+    base64: false,
+    events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT'],
+  };
+}
+
 // ─── connect ────────────────────────────────────────────────────────────────
 async function handleConnect(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -73,12 +85,12 @@ async function handleConnect(req, res) {
       body: {
         instanceName,
         integration: 'WHATSAPP-BAILEYS',
-        webhook: { url: webhookUrl, enabled: true, events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT'] },
+        webhook: webhookConfig(webhookUrl),
       },
     });
     await evo(`/webhook/set/${instanceName}`, {
       method: 'POST',
-      body: { url: webhookUrl, enabled: true, events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT'] },
+      body: { webhook: webhookConfig(webhookUrl) },
     });
   }
   await ensureInstance();
@@ -274,7 +286,8 @@ async function handleSync(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   const t0 = Date.now();
-  console.time('[synctrace] auth');
+  const sid = Math.random().toString(36).slice(2, 6); // rótulo único: syncs concorrentes na mesma instância
+  console.time(`[synctrace ${sid}] auth`);
 
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
@@ -298,7 +311,7 @@ async function handleSync(req, res) {
 
   if (profile?.role !== 'admin') return res.status(403).json({ error: 'Sem permissão' });
 
-  console.timeEnd('[synctrace] auth');
+  console.timeEnd(`[synctrace ${sid}] auth`);
 
   const instanceName = `flowmate-${profile.company_id}`;
 
@@ -309,17 +322,17 @@ async function handleSync(req, res) {
     : `${process.env.APP_URL}/api/whatsapp/webhook`;
   await evo(`/webhook/set/${instanceName}`, {
     method: 'POST',
-    body: { url: webhookUrl, enabled: true, events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT'] },
+    body: { webhook: webhookConfig(webhookUrl) },
   });
 
-  console.time('[synctrace] findChats');
+  console.time(`[synctrace ${sid}] findChats`);
   const chatsRes = await fetch(`${EVOLUTION_URL}/chat/findChats/${instanceName}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
     body: JSON.stringify({}),
   });
-  console.timeEnd('[synctrace] findChats');
-  console.time('[synctrace] findGroups');
+  console.timeEnd(`[synctrace ${sid}] findChats`);
+  console.time(`[synctrace ${sid}] findGroups`);
 
   if (!chatsRes.ok) {
     return res.status(400).json({ error: 'Erro ao buscar chats' });
@@ -344,7 +357,7 @@ async function handleSync(req, res) {
     method: 'GET',
     headers: { 'apikey': EVOLUTION_KEY },
   }).catch(() => null);
-  console.timeEnd('[synctrace] findGroups');
+  console.timeEnd(`[synctrace ${sid}] findGroups`);
 
   if (discoveryRes?.ok) {
     const groupsData = await discoveryRes.json();
@@ -463,36 +476,41 @@ async function handleSync(req, res) {
     return rows;
   }
 
-  console.time('[synctrace] findMessages');
+  console.time(`[synctrace ${sid}] findMessages`);
   const [individualRows, groupRowsFromChats] = await Promise.all([
     fetchChatMessages(individualChats, false),
     fetchChatMessages(groupChats, true),
   ]);
-  console.timeEnd('[synctrace] findMessages');
+  console.timeEnd(`[synctrace ${sid}] findMessages`);
 
   const allRows = [...individualRows, ...groupRowsFromChats]
     .filter(r => r.timestamp >= CUTOFF);
 
   // Upsert em LOTE (dedup por message_id), com chunks de 500 para respeitar o
   // limite de linhas por request do PostgREST.
-  console.time('[synctrace] upserts');
+  console.time(`[synctrace ${sid}] upserts`);
   for (let i = 0; i < allRows.length; i += 500) {
     await admin.from('whatsapp_messages').upsert(allRows.slice(i, i + 500), {
       onConflict: 'message_id',
       ignoreDuplicates: true,
     });
   }
-  console.timeEnd('[synctrace] upserts');
+  console.timeEnd(`[synctrace ${sid}] upserts`);
 
-  // Prune: apaga do Supabase as mensagens da empresa fora da janela (margem de
-  // 2 dias pra não derrubar registro recém-criado por ordenação). A Evolution
-  // continua sendo o arquivo completo.
-  console.time('[synctrace] prune');
-  await admin.from('whatsapp_messages')
-    .delete()
-    .eq('instance_name', instanceName)
-    .lt('timestamp', CUTOFF - 2 * 86400);
-  console.timeEnd('[synctrace] prune');
+  // Prune: regra = SÓ por idade. Apaga mensagens mais velhas que a janela
+  // (CUTOFF) + 2 dias de margem; NUNCA apaga por "não veio neste fetch".
+  // Só roda se este sync trouxe dados da Evolution: com a Evolution fora do ar ou
+  // vazia (ex.: banco dela caiu), o Supabase pode ser a única cópia do histórico.
+  console.time(`[synctrace ${sid}] prune`);
+  if (individualChats.length + groupChats.length > 0) {
+    await admin.from('whatsapp_messages')
+      .delete()
+      .eq('instance_name', instanceName)
+      .lt('timestamp', CUTOFF - 2 * 86400);
+  } else {
+    console.warn(`[synctrace ${sid}] prune ignorado: Evolution não devolveu chats`);
+  }
+  console.timeEnd(`[synctrace ${sid}] prune`);
 
   console.log(`[synctrace] total ${Date.now() - t0}ms (${individualChats.length} chats, ${allRows.length} msgs)`);
 

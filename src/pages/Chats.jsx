@@ -214,7 +214,7 @@ export default function Chats() {
 
     // Instância conectada e nenhuma mensagem no banco → importa o histórico
     // automaticamente uma vez (em vez de obrigar o usuário a achar o botão).
-    if (instance.status === 'connected' && !allMsgs.length && !autoSyncedRef.current) {
+    if (instance?.status === 'connected' && !allMsgs.length && !autoSyncedRef.current) {
       autoSyncedRef.current = true;
       syncMessages();
     }
