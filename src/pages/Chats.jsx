@@ -144,12 +144,35 @@ export default function Chats() {
   const lastIdRef = useRef(0);
   const contactsRef = useRef([]);
   const groupsRef = useRef([]);
+  const selectedRef = useRef(null);
+  const messagesBoxRef = useRef(null);
+  const loadMessagesRef = useRef(null);
+  const lastNewAtRef = useRef(Date.now());   // última vez que chegou msg via polling
+  const lastSyncRef = useRef(0);             // sela o ritmo do sync de auto-recuperação
+  const [historyByJid, setHistoryByJid] = useState({}); // histórico antigo (Evolution), não persistido
+  const historyByJidRef = useRef({});
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadingOlderRef = useRef(false);
+  const pendingScrollFixRef = useRef(null);
   const canSend = auth.can('chats', 'send');
 
   // Mantém refs sincronizados pro polling ler valores atuais sem recriar o intervalo
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { contactsRef.current = contacts; }, [contacts]);
   useEffect(() => { groupsRef.current = groups; }, [groups]);
+  useEffect(() => { historyByJidRef.current = historyByJid; }, [historyByJid]);
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
+  useEffect(() => { loadMessagesRef.current = loadMessages; }, [loadMessages]);
+
+  // Preserva a posição do scroll ao anexar mensagens antigas (o conteúdo
+  // cresce pra cima; somar o delta mantém o ponto de leitura no lugar).
+  useEffect(() => {
+    if (pendingScrollFixRef.current == null) return;
+    const box = messagesBoxRef.current;
+    if (!box) return;
+    box.scrollTop += box.scrollHeight - pendingScrollFixRef.current;
+    pendingScrollFixRef.current = null;
+  }, [historyByJid]);
 
   const loadInstance = useCallback(async () => {
     const session = await supabase.auth.getSession();
@@ -171,7 +194,12 @@ export default function Chats() {
     const instName = instance?.instance_name || instance?.instanceName || (companyId ? `flowmate-${companyId}` : null);
     if (!instName) return;
     const [{ data: msgs }, crm, { data: grps }] = await Promise.all([
-      supabase.from('whatsapp_messages').select('*').eq('instance_name', instName).order('timestamp', { ascending: true }),
+      // Só os últimos 7 dias no Supabase. Histórico mais antigo vem da Evolution
+      // sob demanda (infinite scroll) via /api/whatsapp/history — não persiste.
+      supabase.from('whatsapp_messages').select('*')
+        .eq('instance_name', instName)
+        .gte('timestamp', Math.floor(Date.now() / 1000) - 7 * 86400)
+        .order('timestamp', { ascending: true }),
       db.contacts.list(),
       supabase.from('whatsapp_groups').select('*').eq('instance_name', instName).order('updated_at', { ascending: false }),
     ]);
@@ -238,6 +266,22 @@ export default function Chats() {
     }
   }, [searchParams, instance, conversations, contacts]);
 
+  // Conversa aberta sem mensagens na janela (ex.: veio do CRM via ?phone=) →
+  // popula o histórico direto da Evolution ao abrir. Senão ficaria em branco
+  // até existir mensagem nova.
+  useEffect(() => {
+    const jid = selected?.jid;
+    if (!jid) return;
+    const sel = selected;
+    const hasDbMsg = messagesRef.current.some(m =>
+      m.remote_jid === jid || (!sel.isGroup && samePhone(normalizePhone(m.remote_jid), sel.phone))
+    );
+    if (!hasDbMsg && !(historyByJidRef.current[jid]?.messages?.length)) {
+      loadOlder(jid);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.jid]);
+
   // Polling incremental — busca só mensagens novas (id maior que o último já
   // visto), pausa quando a aba não está visível, e faz refresh imediato ao
   // voltar o foco. Usa `id` (PK) em vez de `timestamp`: relógio do WhatsApp tem
@@ -256,6 +300,7 @@ export default function Chats() {
         .gt('id', lastIdRef.current)
         .order('id', { ascending: true });
       if (data && data.length) {
+        lastNewAtRef.current = Date.now();
         lastIdRef.current = data.reduce((m, x) => Math.max(m, x.id || 0), lastIdRef.current);
         setMessages(prev => {
           const seen = new Set(prev.map(m => m.id));
@@ -264,6 +309,12 @@ export default function Chats() {
           setGroupConvs(groupByGroups(merged, groupsRef.current));
           return merged;
         });
+      } else if (Date.now() - lastNewAtRef.current > 5 * 60 * 1000 && Date.now() - lastSyncRef.current > 10 * 60 * 1000) {
+        // Auto-recuperação: webhook pode ter parado (mensagens chegam no celular
+        // mas não no app). Se ficou mudo 5min, roda um sync silencioso que
+        // re-afirma o webhook na Evolution e puxa a janela de novo.
+        lastSyncRef.current = Date.now();
+        runSyncCore();
       }
     }
 
@@ -291,15 +342,73 @@ export default function Chats() {
 
   async function syncMessages() {
     setSyncing(true);
+    try { await runSyncCore(); } finally { setSyncing(false); }
+  }
+
+  async function runSyncCore() {
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
     await fetch('/api/whatsapp/sync', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}` },
     });
-    await loadMessages();
-    setSyncing(false);
+    lastNewAtRef.current = Date.now();
+    await loadMessagesRef.current();
   }
+
+  // Busca mensagens ANTIGAS na Evolution (arquivo completo) com paginação e
+  // guarda em memória — nunca persiste no Supabase. Usado pelo infinite scroll.
+  const loadOlder = useCallback(async (jid) => {
+    const sel = selectedRef.current;
+    if (!sel || sel.jid !== jid || loadingOlderRef.current) return;
+    const meta = historyByJidRef.current[jid];
+    if (meta?.done) return;
+
+    // Menor timestamp exibido hoje (janela + já carregado) → só busca mais antigas
+    const displayed = [
+      ...(meta?.messages || []),
+      ...messagesRef.current.filter(m =>
+        m.remote_jid === jid || (!sel.isGroup && samePhone(normalizePhone(m.remote_jid), sel.phone))
+      ),
+    ];
+    const beforeTs = displayed.length
+      ? displayed.reduce((min, m) => Math.min(min, m.timestamp), Infinity)
+      : undefined;
+
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    const prevHeight = messagesBoxRef.current?.scrollHeight || 0;
+    try {
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      const res = await fetch('/api/whatsapp/history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          jid,
+          page: meta?.nextPage || 1,
+          limit: 30,
+          ...(beforeTs !== undefined ? { beforeTs } : {}),
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const incoming = data.messages || [];
+        setHistoryByJid(prev => ({
+          ...prev,
+          [jid]: {
+            messages: [...(meta?.messages || []), ...incoming],
+            nextPage: data.nextPage || 1,
+            done: incoming.length === 0 || (data.pages && (data.nextPage || 1) > data.pages),
+          },
+        }));
+        if (incoming.length) pendingScrollFixRef.current = prevHeight;
+      }
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, []);
 
   async function send() {
     if (!text.trim() || !selected || !instance) return;
@@ -439,7 +548,10 @@ export default function Chats() {
   }
 
   const currentMessages = selected
-    ? messages.filter(m => m.remote_jid === selected.jid || (!selected.isGroup && samePhone(normalizePhone(m.remote_jid), selected.phone)))
+    ? [
+        ...(historyByJid[selected.jid]?.messages || []),
+        ...messages.filter(m => m.remote_jid === selected.jid || (!selected.isGroup && samePhone(normalizePhone(m.remote_jid), selected.phone))),
+      ].sort((a, b) => (a.timestamp - b.timestamp) || ((a.id || 0) - (b.id || 0)))
     : [];
 
   const baseList = filter === 'chats'
@@ -635,7 +747,13 @@ export default function Chats() {
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          <div ref={messagesBoxRef} onScroll={e => { if (e.currentTarget.scrollTop < 40 && selected) loadOlder(selected.jid); }}
+            className="flex-1 overflow-y-auto p-4 space-y-2">
+            {loadingOlder && (
+              <div className="flex justify-center py-1">
+                <Loader2 className="w-4 h-4 animate-spin text-gray-300" />
+              </div>
+            )}
             {currentMessages.map((msg, i) => {
               const hasCaption = msg.content && !['[imagem]', '[vídeo]', '[documento]', '[mídia]'].includes(msg.content);
               const showSender = !msg.from_me && selected.isGroup && msg.contact_name;

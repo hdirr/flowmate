@@ -302,6 +302,16 @@ async function handleSync(req, res) {
 
   const instanceName = `flowmate-${profile.company_id}`;
 
+  // Auto-heal do webhook: se a instância perdeu a config na reconexão, este
+  // re-assert reconfigura — senão as mensagens novas nunca chegam por webhook.
+  const webhookUrl = process.env.WEBHOOK_SECRET
+    ? `${process.env.APP_URL}/api/whatsapp/webhook?secret=${process.env.WEBHOOK_SECRET}`
+    : `${process.env.APP_URL}/api/whatsapp/webhook`;
+  await evo(`/webhook/set/${instanceName}`, {
+    method: 'POST',
+    body: { url: webhookUrl, enabled: true, events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT'] },
+  });
+
   console.time('[synctrace] findChats');
   const chatsRes = await fetch(`${EVOLUTION_URL}/chat/findChats/${instanceName}`, {
     method: 'POST',
@@ -385,6 +395,10 @@ async function handleSync(req, res) {
   // um-a-um — 90 chamadas sequenciais à Evolution viravam uma eternidade.
   const CONCURRENCY = 8;
   const MESSAGE_LIMIT = 30;
+  // Janela de histórico importada pro Supabase: só os últimos 7 dias. Histórico
+  // mais antigo fica na Evolution e é buscado sob demanda (infinite scroll via
+  // /api/whatsapp/history) — o Supabase não acumula tudo pra sempre.
+  const CUTOFF = Math.floor(Date.now() / 1000) - 7 * 86400;
 
   function buildRow({ chat, msg, isGroup }) {
     const key = msg.key || {};
@@ -456,7 +470,8 @@ async function handleSync(req, res) {
   ]);
   console.timeEnd('[synctrace] findMessages');
 
-  const allRows = [...individualRows, ...groupRowsFromChats];
+  const allRows = [...individualRows, ...groupRowsFromChats]
+    .filter(r => r.timestamp >= CUTOFF);
 
   // Upsert em LOTE (dedup por message_id), com chunks de 500 para respeitar o
   // limite de linhas por request do PostgREST.
@@ -468,6 +483,17 @@ async function handleSync(req, res) {
     });
   }
   console.timeEnd('[synctrace] upserts');
+
+  // Prune: apaga do Supabase as mensagens da empresa fora da janela (margem de
+  // 2 dias pra não derrubar registro recém-criado por ordenação). A Evolution
+  // continua sendo o arquivo completo.
+  console.time('[synctrace] prune');
+  await admin.from('whatsapp_messages')
+    .delete()
+    .eq('instance_name', instanceName)
+    .lt('timestamp', CUTOFF - 2 * 86400);
+  console.timeEnd('[synctrace] prune');
+
   console.log(`[synctrace] total ${Date.now() - t0}ms (${individualChats.length} chats, ${allRows.length} msgs)`);
 
   return res.status(200).json({ ok: true, chats: individualChats.length, groups: groupsSynced, imported: allRows.length });
@@ -694,6 +720,78 @@ async function handleGroups(req, res) {
   return res.status(200).json({ ok: true, group: created });
 }
 
+// ─── history ────────────────────────────────────────────────────────────────
+// Histórico antigo sob demanda: busca na Evolution (arquivo completo) COM
+// paginação e NÃO persiste no Supabase — usado pelo infinite scroll do Chats.
+async function handleHistory(req, res) {
+  if (req.method !== 'POST') return res.status(405).end();
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+
+  const who = await resolveUser(authHeader);
+  if (!who || !who.companyId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { jid, page = 1, limit = 30, beforeTs } = req.body || {};
+  if (!jid || !String(jid).includes('@')) {
+    return res.status(400).json({ error: 'jid inválido' });
+  }
+
+  const instanceName = instanceNameFor(who.companyId);
+  const PAGE = Math.max(Number(page) || 1, 1);
+  const LIMIT = Math.min(Number(limit) || 30, 100);
+
+  const resEvo = await evo(`/chat/findMessages/${instanceName}`, {
+    method: 'POST',
+    body: {
+      where: { key: { remoteJid: jid } },
+      limit: LIMIT,
+      page: PAGE,
+    },
+  });
+
+  if (!resEvo.ok) {
+    return res.status(502).json({ error: `Evolution: ${resEvo.status}` });
+  }
+  const envelope = resEvo.json?.messages || resEvo.json;
+  const records = (Array.isArray(envelope) ? envelope : envelope?.records) || [];
+
+  const messages = records
+    .map(r => {
+      const key = r.key || {};
+      const content =
+        r.message?.conversation ||
+        r.message?.extendedTextMessage?.text ||
+        r.message?.imageMessage?.caption ||
+        r.message?.videoMessage?.caption ||
+        r.message?.documentMessage?.fileName ||
+        null;
+      if (!content) return null;
+      return {
+        message_id: key.id || r.id,
+        remote_jid: key?.remoteJidAlt || jid,
+        participant_jid: key?.participant || null,
+        from_me: key.fromMe ?? false,
+        content,
+        timestamp: r.messageTimestamp || Math.floor(Date.now() / 1000),
+        contact_name: r.pushName || null,
+        status: key.fromMe ? 'sent' : 'received',
+      };
+    })
+    .filter(Boolean)
+    .filter(m => !beforeTs || m.timestamp < Number(beforeTs))
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const currentPage = Number(envelope?.currentPage) || PAGE;
+  const pages = Number(envelope?.pages) || null;
+  return res.status(200).json({
+    messages,
+    nextPage: currentPage + 1,
+    pages,
+    total: envelope?.total ?? records.length,
+  });
+}
+
 // ─── roteador ───────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   // req.query.path às vezes vem vazio (Vercel entrega o segmento como
@@ -711,6 +809,7 @@ export default async function handler(req, res) {
     'send-media': handleSendMedia,
     'status': handleStatus,
     'sync': handleSync,
+    'history': handleHistory,
     'webhook': handleWebhook,
     'groups': handleGroups,
     '': handleGroups, // /api/whatsapp → GET lista grupos (fallback amigável)
