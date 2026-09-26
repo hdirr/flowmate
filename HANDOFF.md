@@ -2,7 +2,7 @@
 
 > Documento vivo pra retomar o projeto em sessão nova, com contexto zerado.
 > **Sem segredos aqui** — chaves ficam nas env vars do Vercel / painéis.
-> Última atualização: 2026-07-25.
+> Última atualização: 2026-09-25.
 >
 > **PRÓXIMO OBJETIVO (a fazer):** criar uma **integração para equipe de marketing** dentro do produto
 > (o usuário quer "incorporar" isso ao FlowMate). Ainda não especificado — levantar requisitos primeiro.
@@ -25,7 +25,7 @@ O provedor do Agadir bloqueia o TLD `.co`, então TODAS as chamadas Supabase pas
 
 ## Limite crítico: Vercel Hobby = 12 serverless functions (ESTAMOS EM 12/12)
 Não crie novos arquivos em `api/` sem consolidar. Rotas novas vão em catch-alls (`[...path].js`).
-Funções atuais: `users`, `public/lead`, `conversations/state`, `integrations/emit`, `v1/[...path]`, `billing/[...path]`, `whatsapp/{connect,send,send-media,status,sync,webhook}`.
+Funções atuais (7 arquivos): `users`, `public/lead`, `conversations/state`, `integrations/emit`, `v1/[...path]`, `billing/[...path]`, `whatsapp/[...path]` (catch-all único: connect, send, send-media, status, sync, webhook, groups — os 6 arquivos antigos foram removidos).
 Compartilhados (não contam): `api/_lib/{db,conversations,sendMessage,webhooks,plans,v1handlers}.js`.
 
 ## Env vars no Vercel (nomes; valores só no painel)
@@ -109,6 +109,12 @@ select company_id, api_key, webhook_secret from company_integrations where compa
   `https://n8n.atimosbrasil.com/webhook/flowmate`, assinando **só `message.received`**.
   Fluxo: webhook assinado → n8n → agente → responde via `POST /v1/messages` (respeita o 409 se humano assumir).
 
+## Grupos de WhatsApp (feature pronta, 2026-09)
+Criação pela UI em `src/pages/Chats.jsx` (participantes = só contatos do CRM), chat de grupo com texto/mídia, filtro Todas|Conversas|Grupos, grupo ignora a regra de pausa `automation|human`. Automação **"Enviar p/ grupo"** (`send_whatsapp_group` em `Automations.jsx` + `lib/store.js`, `sender:'automation'`). Rotas `GET/POST /api/whatsapp/groups`. Filtros `@g.us` em `NewArrivals.jsx`/`NotificationBell.jsx`; `_lib/conversations.js` ignora `@g.us/@broadcast/@newsletter` para contatos. Migrações já rodadas: `supabase_groups.sql` (tabela `whatsapp_groups`) e `supabase_billing_columns.sql` (colunas de assinatura em `companies`/`pending_signups`; resolveu o 400 do shell do app).
+
+## Estado do deploy (2026-09-25)
+Roteamento do catch-all do WhatsApp corrigido e verificado em produção (`c2ab1dd`), QR tipado (`3acb696`). Conectar WhatsApp → QR depende da Evolution no Railway estar de pé (ver gotcha acima); o usuário reportou que passou a funcionar, **confirmação do escaneamento do QR é do usuário** (exige login).
+
 ## PENDÊNCIAS / PRÓXIMOS PASSOS
 1. **Pagamento: migrando Asaas → AbacatePay** (resolve o branding/CNPJ no checkout). **Fase 1 (código PRONTO, teste devMode pendente):** `api/billing/[...path].js` reescrito pro AbacatePay v1 — cobrança avulsa `ONE_TIME` com produto **inline** (preço do `plans.js`, servidor manda), PIX; webhook `billing.paid` verificado por `?webhookSecret=`; correlação pelo `abacate_billing_id`. Contrato do front intacto (`start`→`{url,token}`). Migração `supabase_abacate.sql` (colunas `abacate_*`). **A confirmar em devMode:** se `customer.cellphone` é obrigatório (talvez precise coletar telefone no Checkout), shape exato do payload do webhook, e habilitar `methods:['CARD']`. **Fase 2 (a fazer):** assinatura automática no cartão (recorrência de verdade) = API **v2** (`/checkouts/create` frequency=SUBSCRIPTION, eventos `subscription.*`). **Go-live:** conta AbacatePay em verificação (KYC via Woovi, até 72h desde 2026-07-29); quando aprovada → trocar `ABACATEPAY_API_KEY` de teste pela de produção + `PUBLISHED=true`. Ver [[flowmate-payment-abacatepay]].
 2. **Ligar preço público:** `src/lib/pricing.js` → `PUBLISHED = false` → `true` (tira banner de prévia). Confirmar preços reais (hoje ilustrativos: essencial 149 / pro 249 / avançado 399 mensal na t1).
@@ -136,6 +142,10 @@ select company_id, api_key, webhook_secret from company_integrations where compa
 - **Repo privado quebra deploy** no Hobby (status "Blocked / user not found"). Manter público OU garantir que o autor do commit seja o email da conta Vercel.
 - **HMAC:** assinar o **corpo bruto** (uma serialização, mesmo buffer no HMAC e no fetch). Reserializar quebra com acento/emoji.
 - **12 functions:** não adicionar arquivo novo em `api/`.
+- **Catch-all `[...path].js` na Vercel (fora do Next.js):** `req.query.path` pode chegar `undefined` — o segmento vem como `req.query['...path']`. Todo roteador catch-all DEVE ter o fallback que deriva a rota de `req.url` (como já têm `v1/` e `billing/`). O `whatsapp/` não tinha e, por isso, TODA sub-rota caía em `handleGroups` (`path=''`): `POST /connect` dava 400 "Nome e participantes são obrigatórios", GET em rota inexistente dava 401 em vez de 404. Corrigido em `c2ab1dd`. **Smoke test de roteamento (sem login):** `GET /api/whatsapp/connect`→405, `GET /api/whatsapp/qualquer_coisa`→404 `route_not_found`, `GET /groups`→401.
+- **Diagnóstico de deploy que NÃO era o problema (não repetir):** Production Branch (hoje em Settings → Environments → Production → Branch Tracking), promoção de deploy, alias do domínio, build cache, Firewall/Deployment Protection. Quando o comportamento em produção contradiz o código, **logar `req.url`/`req.query` na function** e ler em Vercel → Logs antes de teorizar sobre infra.
+- **QR do WhatsApp:** `qr` deve chegar ao front como **string**; `Settings.jsx` fazia `waQr.startsWith(...)` sem checar tipo e derrubava a página (tela branca, sem error boundary). Backend (`fetchQr`) só devolve `qr` se for string; front valida o tipo. Se a Evolution não devolver QR, o 400 traz o corpo cru dela ("Sem QR na resposta da API: (status) corpo").
+- **Erro `Application not found` (404 JSON com `request_id`)** ao conectar = borda do **Railway** sem serviço ativo naquele domínio (Evolution caída/removida/sem crédito, ou `EVOLUTION_API_URL` desatualizada) — não é bug do FlowMate.
 
 ## Feedback/preferências do usuário
 - Valoriza muito UI/UX limpa e minimalista. Quer o produto com "cara de mercado".
