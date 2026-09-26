@@ -141,6 +141,7 @@ export default function Chats() {
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
   const messagesRef = useRef([]);
+  const lastIdRef = useRef(0);
   const contactsRef = useRef([]);
   const groupsRef = useRef([]);
   const canSend = auth.can('chats', 'send');
@@ -166,8 +167,9 @@ export default function Chats() {
   }, []);
 
   const loadMessages = useCallback(async () => {
-    if (!instance) return;
-    const instName = instance.instance_name || instance.instanceName;
+    const companyId = auth.currentCompanyId();
+    const instName = instance?.instance_name || instance?.instanceName || (companyId ? `flowmate-${companyId}` : null);
+    if (!instName) return;
     const [{ data: msgs }, crm, { data: grps }] = await Promise.all([
       supabase.from('whatsapp_messages').select('*').eq('instance_name', instName).order('timestamp', { ascending: true }),
       db.contacts.list(),
@@ -176,6 +178,7 @@ export default function Chats() {
     const allMsgs = msgs || [];
     const allContacts = crm || [];
     const allGroups = grps || [];
+    lastIdRef.current = allMsgs.reduce((m, x) => Math.max(m, x.id || 0), 0);
     setMessages(allMsgs);
     setContacts(allContacts);
     setGroups(allGroups);
@@ -235,24 +238,25 @@ export default function Chats() {
     }
   }, [searchParams, instance, conversations, contacts]);
 
-  // Polling incremental — busca só mensagens novas (mais recentes que a última),
-  // pausa quando a aba não está visível, e faz refresh imediato ao voltar o foco.
+  // Polling incremental — busca só mensagens novas (id maior que o último já
+  // visto), pausa quando a aba não está visível, e faz refresh imediato ao
+  // voltar o foco. Usa `id` (PK) em vez de `timestamp`: relógio do WhatsApp tem
+  // resolução de 1s e msgs do mesmo segundo eram puladas para sempre.
   useEffect(() => {
-    if (!instance) return;
-    const instName = instance.instance_name || instance.instanceName;
+    const companyId = auth.currentCompanyId();
+    const instName = instance?.instance_name || instance?.instanceName || (companyId ? `flowmate-${companyId}` : null);
+    if (!instName) return;
 
     async function pollNew() {
       if (document.hidden) return;
-      const lastTs = messagesRef.current.length
-        ? messagesRef.current[messagesRef.current.length - 1].timestamp
-        : 0;
       const { data } = await supabase
         .from('whatsapp_messages')
         .select('*')
         .eq('instance_name', instName)
-        .gt('timestamp', lastTs)
-        .order('timestamp', { ascending: true });
+        .gt('id', lastIdRef.current)
+        .order('id', { ascending: true });
       if (data && data.length) {
+        lastIdRef.current = data.reduce((m, x) => Math.max(m, x.id || 0), lastIdRef.current);
         setMessages(prev => {
           const seen = new Set(prev.map(m => m.id));
           const merged = [...prev, ...data.filter(m => !seen.has(m.id))];
@@ -263,7 +267,7 @@ export default function Chats() {
       }
     }
 
-    const interval = setInterval(pollNew, 5000);
+    const interval = setInterval(pollNew, 3000);
     const onVisible = () => { if (!document.hidden) pollNew(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => {

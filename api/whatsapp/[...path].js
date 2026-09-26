@@ -211,13 +211,35 @@ async function handleStatus(req, res) {
 
   const instanceName = `flowmate-${profile.company_id}`;
 
-  // Verifica diretamente na Evolution API
+  // Cache quente: usa updated_at da tabela (mantido pelo trigger). Se a coluna
+  // ainda não existir (migração não rodada), cai no caminho Evolution abaixo.
+  let status = 'disconnected';
+  let phone = null;
+  let cacheAge = Infinity;
+
+  try {
+    const { data: inst } = await admin
+      .from('whatsapp_instances')
+      .select('status, phone, updated_at')
+      .eq('company_id', profile.company_id)
+      .single();
+    status = inst?.status || 'disconnected';
+    phone = inst?.phone || null;
+    if (inst?.updated_at) cacheAge = Date.now() - new Date(inst.updated_at).getTime();
+  } catch {
+    // coluna updated_at ainda não existe — sem cache
+  }
+
+  // Cache quente (<45s): responde na hora sem bater na Evolution — abrir a aba
+  // Chats não fica mais na mão do Railway (que pode estar frio/sonolento).
+  if (cacheAge < 45_000) {
+    return res.status(200).json({ status, phone, instanceName });
+  }
+
+  // Cache frio: consulta a Evolution (que atualiza o banco via webhook também).
   const stateRes = await fetch(`${EVOLUTION_URL}/instance/connectionState/${instanceName}`, {
     headers: { 'apikey': EVOLUTION_KEY },
   }).catch(() => null);
-
-  let status = 'disconnected';
-  let phone = null;
 
   if (stateRes?.ok) {
     const stateData = await stateRes.json();
@@ -234,7 +256,7 @@ async function handleStatus(req, res) {
     .eq('company_id', profile.company_id)
     .single();
 
-  phone = instance?.phone || null;
+  phone = instance?.phone || phone;
 
   // Atualiza status no banco
   await admin.from('whatsapp_instances').upsert({
@@ -250,6 +272,9 @@ async function handleStatus(req, res) {
 // ─── sync ───────────────────────────────────────────────────────────────────
 async function handleSync(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
+
+  const t0 = Date.now();
+  console.time('[synctrace] auth');
 
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
@@ -273,13 +298,18 @@ async function handleSync(req, res) {
 
   if (profile?.role !== 'admin') return res.status(403).json({ error: 'Sem permissão' });
 
+  console.timeEnd('[synctrace] auth');
+
   const instanceName = `flowmate-${profile.company_id}`;
 
+  console.time('[synctrace] findChats');
   const chatsRes = await fetch(`${EVOLUTION_URL}/chat/findChats/${instanceName}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
     body: JSON.stringify({}),
   });
+  console.timeEnd('[synctrace] findChats');
+  console.time('[synctrace] findGroups');
 
   if (!chatsRes.ok) {
     return res.status(400).json({ error: 'Erro ao buscar chats' });
@@ -304,6 +334,7 @@ async function handleSync(req, res) {
     method: 'GET',
     headers: { 'apikey': EVOLUTION_KEY },
   }).catch(() => null);
+  console.timeEnd('[synctrace] findGroups');
 
   if (discoveryRes?.ok) {
     const groupsData = await discoveryRes.json();
@@ -418,21 +449,26 @@ async function handleSync(req, res) {
     return rows;
   }
 
+  console.time('[synctrace] findMessages');
   const [individualRows, groupRowsFromChats] = await Promise.all([
     fetchChatMessages(individualChats, false),
     fetchChatMessages(groupChats, true),
   ]);
+  console.timeEnd('[synctrace] findMessages');
 
   const allRows = [...individualRows, ...groupRowsFromChats];
 
   // Upsert em LOTE (dedup por message_id), com chunks de 500 para respeitar o
   // limite de linhas por request do PostgREST.
+  console.time('[synctrace] upserts');
   for (let i = 0; i < allRows.length; i += 500) {
     await admin.from('whatsapp_messages').upsert(allRows.slice(i, i + 500), {
       onConflict: 'message_id',
       ignoreDuplicates: true,
     });
   }
+  console.timeEnd('[synctrace] upserts');
+  console.log(`[synctrace] total ${Date.now() - t0}ms (${individualChats.length} chats, ${allRows.length} msgs)`);
 
   return res.status(200).json({ ok: true, chats: individualChats.length, groups: groupsSynced, imported: allRows.length });
 }
@@ -458,6 +494,9 @@ async function handleWebhook(req, res) {
       ? instanceName.slice('flowmate-'.length)
       : null;
 
+    const t0 = Date.now();
+    console.log(`[webhook] event=${event} instance=${instanceName} company=${companyId ?? '-'}`);
+
     if (event === 'connection.update') {
       const state = body?.data?.state;
       const phone = body?.data?.wuid?.replace('@s.whatsapp.net', '') || null;
@@ -474,9 +513,13 @@ async function handleWebhook(req, res) {
 
     if (event === 'messages.upsert') {
       const msgData = body?.data;
-      if (!msgData || !companyId) return res.status(200).json({ ok: true });
+      if (!msgData || !companyId) {
+        console.log(`[webhook] messages.upsert sem dados (data=${typeof msgData}, company=${companyId ?? '-'})`);
+        return res.status(200).json({ ok: true });
+      }
 
       const messages = Array.isArray(msgData) ? msgData : [msgData];
+      console.log(`[webhook] messages.upsert n=${messages.length} (${Date.now() - t0}ms até o parser)`);
 
       for (const msg of messages) {
         const key = msg.key || {};
@@ -561,6 +604,7 @@ async function handleWebhook(req, res) {
         }
       }
 
+      console.log(`[webhook] messages.upsert processadas em ${Date.now() - t0}ms`);
       return res.status(200).json({ ok: true });
     }
 
