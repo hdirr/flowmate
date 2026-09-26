@@ -35,6 +35,47 @@ async function evo(path, { method = 'GET', body } = {}) {
   return { ok: res.ok, status: res.status, text, json };
 }
 
+// ─── parser de mensagem (texto/mídia) ────────────────────────────────────────
+// O WhatsApp embrulha mensagens efêmeras, "ver uma vez", editadas e documentos
+// com legenda em outro objeto; desembrulha antes de olhar o tipo.
+function unwrapMessage(message) {
+  let cur = message || {};
+  for (let i = 0; i < 4; i++) {
+    const inner =
+      cur.ephemeralMessage?.message ||
+      cur.viewOnceMessage?.message ||
+      cur.viewOnceMessageV2?.message ||
+      cur.viewOnceMessageV2Extension?.message ||
+      cur.documentWithCaptionMessage?.message ||
+      cur.editedMessage?.message;
+    if (!inner) break;
+    cur = inner;
+  }
+  return cur;
+}
+
+const MEDIA_KINDS = [
+  ['imageMessage', 'image', '[imagem]'],
+  ['videoMessage', 'video', '[vídeo]'],
+  ['audioMessage', 'audio', '[áudio]'],
+  ['documentMessage', 'document', '[documento]'],
+  ['stickerMessage', 'sticker', '[sticker]'],
+];
+
+// → { type, content, fileName }. type ∈ text|image|video|audio|document|sticker.
+// content é a legenda (ou um marcador tipo "[áudio]" quando não há legenda);
+// para texto sem conteúdo devolve null.
+function parseMessage(message) {
+  const m = unwrapMessage(message);
+  for (const [key, type, placeholder] of MEDIA_KINDS) {
+    const x = m[key];
+    if (!x) continue;
+    const fileName = type === 'document' ? (x.fileName || x.title || null) : null;
+    return { type, content: x.caption || placeholder, fileName };
+  }
+  return { type: 'text', content: m.conversation || m.extendedTextMessage?.text || null, fileName: null };
+}
+
 // Corpo do webhook no formato da Evolution v2: tudo dentro de `webhook`. Só os
 // eventos que o handler consome (menos eventos = menos invocações no Vercel).
 function webhookConfig(url) {
@@ -418,13 +459,8 @@ async function handleSync(req, res) {
     const fromMe = key.fromMe ?? false;
     const messageId = key.id || msg.id;
 
-    const content =
-      msg.message?.conversation ||
-      msg.message?.extendedTextMessage?.text ||
-      msg.message?.imageMessage?.caption ||
-      msg.message?.videoMessage?.caption ||
-      msg.message?.documentMessage?.fileName ||
-      null;
+    const parsed = parseMessage(msg.message);
+    const content = parsed.content;
 
     if (!content) return null;
 
@@ -442,8 +478,9 @@ async function handleSync(req, res) {
       remote_jid: displayJid,
       participant_jid: participantJid,
       from_me: fromMe,
-      message_type: 'text',
+      message_type: parsed.type,
       content,
+      file_name: parsed.fileName,
       timestamp,
       contact_name: contactName,
       status: fromMe ? 'sent' : 'received',
@@ -581,14 +618,8 @@ async function handleWebhook(req, res) {
           .from('whatsapp_messages').select('id').eq('message_id', messageId).limit(1);
         const alreadyLogged = !!(dup && dup.length);
 
-        const content =
-          msg.message?.conversation ||
-          msg.message?.extendedTextMessage?.text ||
-          msg.message?.imageMessage?.caption ||
-          msg.message?.videoMessage?.caption ||
-          msg.message?.documentMessage?.title ||
-          msg.text ||
-          '[mídia]';
+        const parsed = parseMessage(msg.message);
+        const content = parsed.content || msg.text || '[mídia]';
 
         const contactName = isGroup
           ? (msg.pushName || (participantJid ? participantJid.replace(/@.*/, '') : remoteJid.replace(/@.*/, '')))
@@ -622,8 +653,9 @@ async function handleWebhook(req, res) {
             remote_jid: remoteJid,
             participant_jid: participantJid,
             from_me: fromMe,
-            message_type: 'text',
+            message_type: parsed.type,
             content,
+            file_name: parsed.fileName,
             timestamp,
             contact_name: contactName,
             status: fromMe ? 'sent' : 'received',
@@ -738,6 +770,90 @@ async function handleGroups(req, res) {
   return res.status(200).json({ ok: true, group: created });
 }
 
+// ─── media ──────────────────────────────────────────────────────────────────
+// Baixa sob demanda uma mídia RECEBIDA: pede o arquivo à Evolution, sobe pro
+// Storage (bucket público whatsapp-media) e guarda o media_url na mensagem
+// (cache — na próxima vez responde direto). Serve também pro histórico antigo
+// (/history), que não tem linha no Supabase: nesse caso só devolve a URL.
+const MEDIA_BUCKET = 'whatsapp-media';
+const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
+const MIME_EXT = {
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+  'video/mp4': 'mp4', 'video/3gpp': '3gp', 'video/quicktime': 'mov',
+  'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/webm': 'webm',
+  'application/pdf': 'pdf',
+};
+
+function typeFromMime(mime) {
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
+  return 'document';
+}
+
+async function handleMedia(req, res) {
+  if (req.method !== 'POST') return res.status(405).end();
+
+  const who = await resolveUser(req.headers.authorization);
+  if (!who || !who.companyId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { message_id: messageId } = req.body || {};
+  if (!messageId || typeof messageId !== 'string') {
+    return res.status(400).json({ error: 'message_id obrigatório' });
+  }
+
+  const admin = adminClient();
+  const { data: row } = await admin
+    .from('whatsapp_messages')
+    .select('id, media_url, message_type')
+    .eq('company_id', who.companyId)
+    .eq('message_id', messageId)
+    .limit(1)
+    .maybeSingle();
+
+  if (row?.media_url) return res.status(200).json({ url: row.media_url, type: row.message_type });
+
+  const instanceName = instanceNameFor(who.companyId);
+  const evoRes = await evo(`/chat/getBase64FromMediaMessage/${instanceName}`, {
+    method: 'POST',
+    body: { message: { key: { id: messageId } }, convertToMp4: false },
+  });
+  if (!evoRes.ok) return res.status(502).json({ error: `Evolution: ${evoRes.status}` });
+
+  const base64 = evoRes.json?.base64;
+  if (!base64 || typeof base64 !== 'string') {
+    return res.status(404).json({ error: 'Mídia indisponível na Evolution' });
+  }
+  const mime = String(evoRes.json?.mimetype || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+  const buffer = Buffer.from(base64.replace(/^data:[^,]+,/, ''), 'base64');
+  if (buffer.length > MAX_MEDIA_BYTES) return res.status(413).json({ error: 'Mídia grande demais' });
+
+  const safeId = messageId.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
+  const ext = MIME_EXT[mime] || 'bin';
+  const path = `${who.companyId}/in/${safeId}.${ext}`;
+
+  const { error: upErr } = await admin.storage.from(MEDIA_BUCKET).upload(path, buffer, {
+    contentType: mime,
+    upsert: true,
+  });
+  if (upErr) {
+    console.error('[whatsapp/media] upload falhou:', upErr.message);
+    return res.status(502).json({ error: 'Falha ao salvar a mídia' });
+  }
+
+  const { data: pub } = admin.storage.from(MEDIA_BUCKET).getPublicUrl(path);
+  const url = pub?.publicUrl;
+  const type = row?.message_type && row.message_type !== 'text' ? row.message_type : typeFromMime(mime);
+
+  if (row?.id) {
+    await admin.from('whatsapp_messages')
+      .update({ media_url: url, message_type: type })
+      .eq('id', row.id);
+  }
+
+  return res.status(200).json({ url, type });
+}
+
 // ─── history ────────────────────────────────────────────────────────────────
 // Histórico antigo sob demanda: busca na Evolution (arquivo completo) COM
 // paginação e NÃO persiste no Supabase — usado pelo infinite scroll do Chats.
@@ -777,19 +893,16 @@ async function handleHistory(req, res) {
   const messages = records
     .map(r => {
       const key = r.key || {};
-      const content =
-        r.message?.conversation ||
-        r.message?.extendedTextMessage?.text ||
-        r.message?.imageMessage?.caption ||
-        r.message?.videoMessage?.caption ||
-        r.message?.documentMessage?.fileName ||
-        null;
+      const parsed = parseMessage(r.message);
+      const content = parsed.content;
       if (!content) return null;
       return {
         message_id: key.id || r.id,
         remote_jid: key?.remoteJidAlt || jid,
         participant_jid: key?.participant || null,
         from_me: key.fromMe ?? false,
+        message_type: parsed.type,
+        file_name: parsed.fileName,
         content,
         timestamp: r.messageTimestamp || Math.floor(Date.now() / 1000),
         contact_name: r.pushName || null,
@@ -828,6 +941,7 @@ export default async function handler(req, res) {
     'status': handleStatus,
     'sync': handleSync,
     'history': handleHistory,
+    'media': handleMedia,
     'webhook': handleWebhook,
     'groups': handleGroups,
     '': handleGroups, // /api/whatsapp → GET lista grupos (fallback amigável)

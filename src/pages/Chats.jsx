@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { db } from '../lib/store';
 import { auth } from '../lib/auth';
-import { Send, Search, MessageCircle, Wifi, WifiOff, Loader2, RefreshCw, Paperclip, FileText, X, UserCog, Bot, Users, UsersRound, Plus } from 'lucide-react';
+import { Send, Search, MessageCircle, Wifi, WifiOff, Loader2, RefreshCw, Paperclip, FileText, X, UserCog, Bot, Users, UsersRound, Plus, Mic, Film, Image as ImageIcon } from 'lucide-react';
 import ContactPanel from '../components/ContactPanel';
 
 function timeLabel(ts) {
@@ -107,6 +107,91 @@ function GroupAvatar({ name, isGroup, className = '' }) {
         ? <UsersRound className="w-5 h-5 text-indigo-500" />
         : <span className="text-sm font-bold text-green-600">{String(name || '?')[0].toUpperCase()}</span>}
     </div>
+  );
+}
+
+const MEDIA_TYPES = ['image', 'video', 'audio', 'document', 'sticker'];
+const MEDIA_LABEL = { media: 'mídia', image: 'imagem', sticker: 'sticker', video: 'vídeo', audio: 'áudio', document: 'documento' };
+const MEDIA_ICON = { image: ImageIcon, sticker: ImageIcon, video: Film, audio: Mic, document: FileText };
+const mediaCache = new Map(); // message_id → { url, type } (evita rebaixar ao re-renderizar)
+
+// Mídia de uma mensagem. Já tem media_url (enviada por nós / já baixada) → mostra.
+// Senão baixa sob demanda via /api/whatsapp/media: imagem e sticker sozinhos ao
+// entrar na tela; áudio, vídeo e documento só quando a pessoa clica.
+function MediaAttachment({ msg }) {
+  const known = msg.media_url
+    ? { url: msg.media_url, type: msg.message_type }
+    : mediaCache.get(msg.message_id) || null;
+  const [media, setMedia] = useState(known);
+  const [state, setState] = useState('idle'); // idle | loading | error
+  const boxRef = useRef(null);
+  const declared = MEDIA_TYPES.includes(msg.message_type) ? msg.message_type : 'media'; // 'media' = tipo ainda desconhecido (mensagens antigas)
+
+  const load = useCallback(async () => {
+    if (!msg.message_id) { setState('error'); return; }
+    setState('loading');
+    try {
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      const res = await fetch('/api/whatsapp/media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ message_id: msg.message_id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) throw new Error(data.error || 'falha');
+      const m = { url: data.url, type: MEDIA_TYPES.includes(data.type) ? data.type : declared };
+      mediaCache.set(msg.message_id, m);
+      setMedia(m);
+      setState('idle');
+    } catch {
+      setState('error');
+    }
+  }, [msg.message_id, declared]);
+
+  const autoLoad = !media && (declared === 'image' || declared === 'sticker');
+  useEffect(() => {
+    if (!autoLoad || !boxRef.current) return;
+    const io = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) { io.disconnect(); load(); }
+    }, { rootMargin: '200px' });
+    io.observe(boxRef.current);
+    return () => io.disconnect();
+  }, [autoLoad, load]);
+
+  if (media) {
+    const t = MEDIA_TYPES.includes(media.type) ? media.type : declared;
+    if (t === 'image' || t === 'sticker') {
+      return (
+        <a href={media.url} target="_blank" rel="noreferrer">
+          <img src={media.url} alt={MEDIA_LABEL[t]}
+            className={`rounded-lg max-w-full mb-1 object-cover ${t === 'sticker' ? 'max-h-32' : 'max-h-64'}`} />
+        </a>
+      );
+    }
+    if (t === 'video') return <video src={media.url} controls className="rounded-lg max-w-full mb-1 max-h-64" />;
+    if (t === 'audio') return <audio src={media.url} controls className="mb-1 max-w-full" />;
+    return (
+      <a href={media.url} target="_blank" rel="noreferrer"
+        className={`flex items-center gap-2 mb-1 rounded-lg px-2 py-1.5 ${msg.from_me ? 'bg-green-600/40' : 'bg-gray-100'}`}>
+        <FileText className="w-4 h-4 shrink-0" />
+        <span className="truncate underline">{msg.file_name || 'Documento'}</span>
+      </a>
+    );
+  }
+
+  const Icon = MEDIA_ICON[declared] || FileText;
+  return (
+    <button ref={boxRef} type="button" onClick={load} disabled={state === 'loading'}
+      className={`flex items-center gap-2 mb-1 rounded-lg px-3 py-2 text-xs w-full disabled:opacity-60
+        ${msg.from_me ? 'bg-green-600/40' : 'bg-gray-100 text-gray-600'}`}>
+      {state === 'loading' ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <Icon className="w-4 h-4 shrink-0" />}
+      <span className="truncate">
+        {state === 'loading' ? 'Carregando...'
+          : state === 'error' ? `Não foi possível carregar — tentar de novo`
+          : `Carregar ${MEDIA_LABEL[declared]}`}
+      </span>
+    </button>
   );
 }
 
@@ -756,7 +841,8 @@ export default function Chats() {
               </div>
             )}
             {currentMessages.map((msg, i) => {
-              const hasCaption = msg.content && !['[imagem]', '[vídeo]', '[documento]', '[mídia]'].includes(msg.content);
+              const hasCaption = msg.content && !['[imagem]', '[vídeo]', '[áudio]', '[documento]', '[sticker]', '[mídia]'].includes(msg.content);
+              const hasMedia = !!msg.media_url || MEDIA_TYPES.includes(msg.message_type) || msg.content === '[mídia]';
               const showSender = !msg.from_me && selected.isGroup && msg.contact_name;
               return (
               <div key={i} className={`flex flex-col ${msg.from_me ? 'items-end' : 'items-start'}`}>
@@ -765,21 +851,7 @@ export default function Chats() {
                 )}
                 <div className={`max-w-[70%] px-3 py-2 rounded-2xl text-sm shadow-sm
                   ${msg.from_me ? 'bg-green-500 text-white rounded-br-sm' : 'bg-white text-gray-800 rounded-bl-sm border border-gray-100'}`}>
-                  {msg.media_url && msg.message_type === 'image' && (
-                    <a href={msg.media_url} target="_blank" rel="noreferrer">
-                      <img src={msg.media_url} alt="imagem" className="rounded-lg max-w-full mb-1 max-h-64 object-cover" />
-                    </a>
-                  )}
-                  {msg.media_url && msg.message_type === 'video' && (
-                    <video src={msg.media_url} controls className="rounded-lg max-w-full mb-1 max-h-64" />
-                  )}
-                  {msg.media_url && msg.message_type === 'document' && (
-                    <a href={msg.media_url} target="_blank" rel="noreferrer"
-                      className={`flex items-center gap-2 mb-1 rounded-lg px-2 py-1.5 ${msg.from_me ? 'bg-green-600/40' : 'bg-gray-100'}`}>
-                      <FileText className="w-4 h-4 shrink-0" />
-                      <span className="truncate underline">{msg.file_name || 'Documento'}</span>
-                    </a>
-                  )}
+                  {hasMedia && <MediaAttachment msg={msg} />}
                   {hasCaption && <p>{msg.content}</p>}
                   <p className={`text-xs mt-1 ${msg.from_me ? 'text-green-100' : 'text-gray-400'}`}>{timeLabel(msg.timestamp)}</p>
                 </div>
