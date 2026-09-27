@@ -620,6 +620,7 @@ async function handleWebhook(req, res) {
 
         const parsed = parseMessage(msg.message);
         const content = parsed.content || msg.text || '[mídia]';
+        console.log(`[webhook] msg jid=${remoteJid} id=${messageId} type=${parsed.type} fromMe=${fromMe} dup=${alreadyLogged}`);
 
         const contactName = isGroup
           ? (msg.pushName || (participantJid ? participantJid.replace(/@.*/, '') : remoteJid.replace(/@.*/, '')))
@@ -646,7 +647,7 @@ async function handleWebhook(req, res) {
 
         // 3) Grava no log (fonte da verdade)
         if (!alreadyLogged) {
-          await db.from('whatsapp_messages').insert({
+          const { error: insErr } = await db.from('whatsapp_messages').insert({
             company_id: companyId,
             conversation_id: conversation.id,
             instance_name: instanceName,
@@ -661,6 +662,9 @@ async function handleWebhook(req, res) {
             status: fromMe ? 'sent' : 'received',
             message_id: messageId,
           });
+          if (insErr) {
+            console.error(`[webhook] insert falhou (type=${parsed.type}, id=${messageId}): ${insErr.message}`);
+          }
         }
 
         // 4) Repassa pro consumidor SÓ quando a conversa está em automação e é 1:1.

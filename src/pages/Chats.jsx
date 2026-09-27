@@ -110,6 +110,31 @@ function GroupAvatar({ name, isGroup, className = '' }) {
   );
 }
 
+// O Supabase corta cada consulta em 1000 linhas. A janela de 7 dias passa disso
+// (sync importa ~1250), então busca em páginas (mais novas primeiro, desempate por
+// id pra paginação estável) e devolve em ordem crescente. Sem isso as mensagens
+// mais NOVAS ficavam de fora — e o polling por id nunca as buscava.
+const WINDOW_PAGE = 1000;
+const WINDOW_MAX = 20000;
+async function fetchWindowMessages(instName) {
+  const since = Math.floor(Date.now() / 1000) - 7 * 86400;
+  const all = [];
+  for (let from = 0; from < WINDOW_MAX; from += WINDOW_PAGE) {
+    const { data, error } = await supabase
+      .from('whatsapp_messages')
+      .select('*')
+      .eq('instance_name', instName)
+      .gte('timestamp', since)
+      .order('timestamp', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, from + WINDOW_PAGE - 1);
+    if (error) { console.error('[chats] falha ao carregar mensagens:', error); break; }
+    all.push(...(data || []));
+    if (!data || data.length < WINDOW_PAGE) break;
+  }
+  return all.reverse();
+}
+
 const MEDIA_TYPES = ['image', 'video', 'audio', 'document', 'sticker'];
 const MEDIA_LABEL = { media: 'mídia', image: 'imagem', sticker: 'sticker', video: 'vídeo', audio: 'áudio', document: 'documento' };
 const MEDIA_ICON = { image: ImageIcon, sticker: ImageIcon, video: Film, audio: Mic, document: FileText };
@@ -277,13 +302,10 @@ export default function Chats() {
     const companyId = auth.currentCompanyId();
     const instName = instance?.instance_name || instance?.instanceName || (companyId ? `flowmate-${companyId}` : null);
     if (!instName) return;
-    const [{ data: msgs }, crm, { data: grps }] = await Promise.all([
+    const [msgs, crm, { data: grps }] = await Promise.all([
       // Só os últimos 7 dias no Supabase. Histórico mais antigo vem da Evolution
       // sob demanda (infinite scroll) via /api/whatsapp/history — não persiste.
-      supabase.from('whatsapp_messages').select('*')
-        .eq('instance_name', instName)
-        .gte('timestamp', Math.floor(Date.now() / 1000) - 7 * 86400)
-        .order('timestamp', { ascending: true }),
+      fetchWindowMessages(instName),
       db.contacts.list(),
       supabase.from('whatsapp_groups').select('*').eq('instance_name', instName).order('updated_at', { ascending: false }),
     ]);
