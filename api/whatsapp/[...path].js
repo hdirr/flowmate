@@ -737,22 +737,24 @@ async function handleGroups(req, res) {
   }
 
   // Cria o grupo DE VERDADE na Evolution (adiciona os participantes no WhatsApp)
-  const evoRes = await fetch(`${EVOLUTION_URL}/group/create/${instanceName}`, {
+  const evoRes = await evo(`/group/create/${instanceName}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
-    body: JSON.stringify({
+    body: {
       groupName: name,
       description: description || undefined,
       participants: phones,
-    }),
+    },
   });
 
   if (!evoRes.ok) {
-    const err = await evoRes.json().catch(() => ({}));
-    return res.status(502).json({ error: err.message || 'delivery_failed' });
+    // v2 embrulha o erro de validação em response.message (array) — ex.:
+    // {"status":400,"error":"Bad Request","response":{"message":["participants should not be empty"]}}
+    const msg = evoRes.json?.response?.message;
+    const detail = Array.isArray(msg) ? msg.join('; ') : (msg || evoRes.json?.message || evoRes.json?.error);
+    return res.status(502).json({ error: detail || `delivery_failed (${evoRes.status})`, evolution: evoRes.json ?? evoRes.text });
   }
 
-  const evoData = await evoRes.json().catch(() => ({}));
+  const evoData = evoRes.json || {};
   const groupJid = evoData?.groupJid || evoData?.jid || evoData?.id || evoData?.groupId;
 
   if (!groupJid) {
