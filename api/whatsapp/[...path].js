@@ -740,7 +740,7 @@ async function handleGroups(req, res) {
   const evoRes = await evo(`/group/create/${instanceName}`, {
     method: 'POST',
     body: {
-      groupName: name,
+      subject: name, // v2 usa "subject" (não "groupName" — v1)
       description: description || undefined,
       participants: phones,
     },
