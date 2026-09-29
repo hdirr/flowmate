@@ -6,7 +6,7 @@
 >
 > **WhatsApp — mensagens e mídia OK (confirmado pelo usuário em 2026-09-28):** `supabase_whatsapp_media.sql` foi rodada, o buraco de histórico foi recuperado e mensagens/mídia novas chegam em tempo real. Ver PENDÊNCIAS A0 pro que ainda falta (Railway, limpeza Atimos).
 >
-> **Criar grupo — corrigido, aguardando confirmação de teste:** o botão "Novo grupo" dava 502. Duas causas em cascata, corrigidas em `0e7d179`/`2a72397`: (1) o código só sabia ler erro no formato v1 (`err.message`), então qualquer falha da v2 virava "delivery_failed" sem pista — trocado pro helper `evo()`, que loga a resposta crua e extrai `response.message` (formato v2); (2) com o erro real visível, apareceu `instance requires property "subject"`: o `POST /group/create` da v2 usa o campo **`subject`**, não `groupName` (v1). **Próxima sessão: confirmar que criar grupo funciona de ponta a ponta** (grupo criado no WhatsApp de verdade, não só sem erro).
+> **Criar grupo — corrigido e confirmado (2026-09-29):** o botão "Novo grupo" dava 502. Duas causas em cascata, corrigidas em `0e7d179`/`2a72397`: (1) o código só sabia ler erro no formato v1 (`err.message`), então qualquer falha da v2 virava "delivery_failed" sem pista — trocado pro helper `evo()`, que loga a resposta crua e extrai `response.message` (formato v2); (2) com o erro real visível, apareceu `instance requires property "subject"`: o `POST /group/create` da v2 usa o campo **`subject`**, não `groupName` (v1). Usuário confirmou criando grupo pela UI.
 >
 > **PRÓXIMO OBJETIVO (a fazer):** criar uma **integração para equipe de marketing** dentro do produto
 > (o usuário quer "incorporar" isso ao FlowMate). Ainda não especificado — levantar requisitos primeiro.
@@ -117,7 +117,7 @@ select company_id, api_key, webhook_secret from company_integrations where compa
 
 ## Grupos de WhatsApp
 Criação pela UI em `src/pages/Chats.jsx` (participantes = só contatos do CRM), chat de grupo com texto/mídia, filtro Todas|Conversas|Grupos, grupo ignora a regra de pausa `automation|human`. Automação **"Enviar p/ grupo"** (`send_whatsapp_group` em `Automations.jsx` + `lib/store.js`, `sender:'automation'`). Rotas `GET/POST /api/whatsapp/groups`. Filtros `@g.us` em `NewArrivals.jsx`/`NotificationBell.jsx`; `_lib/conversations.js` ignora `@g.us/@broadcast/@newsletter` para contatos. Migrações já rodadas: `supabase_groups.sql` (tabela `whatsapp_groups`) e `supabase_billing_columns.sql` (colunas de assinatura em `companies`/`pending_signups`; resolveu o 400 do shell do app).
-- **`POST /group/create/{instance}` da Evolution v2 usa o campo `subject`** (não `groupName`, que é v1) — corrigido em `2a72397`, ainda sem confirmação de teste ponta a ponta (ver nota no topo do documento).
+- **`POST /group/create/{instance}` da Evolution v2 usa o campo `subject`** (não `groupName`, que é v1) — corrigido em `2a72397` e confirmado funcionando (2026-09-29).
 
 ## WhatsApp — como as mensagens fluem (estado pós 2026-09-25)
 - **Supabase guarda só os últimos 7 dias** (`whatsapp_messages`). A **Evolution é o arquivo completo**. `Chats.jsx` carrega a janela de 7d; ao rolar pra cima faz **scroll infinito** via `POST /api/whatsapp/history` (`{jid,page,limit,beforeTs}`), que lê a Evolution paginado e **não persiste** no Supabase.
