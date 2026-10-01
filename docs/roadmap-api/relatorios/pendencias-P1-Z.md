@@ -28,6 +28,8 @@ Cada item cita o relatório de origem.
 ## Segurança (fora da P1-Z, mas registrar no HANDOFF)
 - **Chave da Evolution fraca, troca agendada com o Agadir.** P1-S3 e P1-W2 bloqueadas até a
   troca de `EVOLUTION_API_KEY` e a criação do `WEBHOOK_SECRET`. (P1-S5)
+- **Fim da Parte 1:** o Agadir troca o `VERCEL_BYPASS_TOKEN` (Vercel → Deployment Protection →
+  Protection Bypass for Automation) junto com as outras chaves. (P1-B3)
 - **Fim da Parte 1:** o Agadir regenera a chave de teste da API e atualiza `FLOWMATE_TEST_KEY`;
   limpar de novo o allowlist (`.claude/settings.local.json`) se aparecer algum valor. (P1-S6)
 
