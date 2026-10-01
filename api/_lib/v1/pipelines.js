@@ -10,8 +10,10 @@ export async function listPipelines(req, res, { companyId }) {
   const { data: pipes, count, error } = await admin.from('crm_pipelines')
     .select('id, name, position', { count: 'exact' })
     .eq('company_id', companyId)
+    // Mesma ordem da tela: position e, no empate, o mais antigo primeiro (id desempata o resto).
     .order('position', { ascending: true })
-    .order('name', { ascending: true })
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
     .range(page.from, page.to);
   if (isRangeBeyondEnd(error)) {
     // Página além do fim: só o total, items vazio.
@@ -30,7 +32,9 @@ export async function listPipelines(req, res, { companyId }) {
       .select('id, name, color, position, pipeline_id')
       .eq('company_id', companyId)
       .in('pipeline_id', ids)
-      .order('position', { ascending: true });
+      // crm_stages não tem created_at (esquema-atual.md): empate de position desempata por id.
+      .order('position', { ascending: true })
+      .order('id', { ascending: true });
     if (stErr) return internal(res, stErr);
     stages = data || [];
   }
