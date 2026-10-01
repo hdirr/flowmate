@@ -72,7 +72,13 @@ export default function ContactPanel({ contact, onClose, onSave }) {
     const options = newField.type === 'select'
       ? newField.options.split(',').map(o => o.trim()).filter(Boolean)
       : [];
-    await db.customFields.create({ name: newField.name.trim(), type: newField.type, options });
+    try {
+      await db.customFields.create({ name: newField.name.trim(), type: newField.type, options });
+    } catch (e) {
+      alert(e.message);
+      setCreatingField(false);
+      return;
+    }
     const cf = await db.customFields.list();
     setFields(cf);
     setNewField({ name: '', type: 'text', options: '' });

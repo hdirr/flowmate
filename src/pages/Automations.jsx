@@ -84,7 +84,13 @@ function StepConfig({ action, onChange, stages, pipelines = [] }) {
     const options = newField.type === 'select'
       ? newField.options.split(',').map(o => o.trim()).filter(Boolean)
       : [];
-    const f = await db.customFields.create({ name: newField.name.trim(), type: newField.type, options });
+    let f;
+    try {
+      f = await db.customFields.create({ name: newField.name.trim(), type: newField.type, options });
+    } catch (e) {
+      alert(e.message);
+      return;
+    }
     const updated = await db.customFields.list();
     setFields(updated);
     if (f) onChange({ ...action, fieldId: f.id, fieldValue: '' });

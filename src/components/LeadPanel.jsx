@@ -75,7 +75,13 @@ export default function LeadPanel({ lead, onClose, onUpdate, onRemove }) {
     const options = newField.type === 'select'
       ? newField.options.split(',').map(o => o.trim()).filter(Boolean)
       : [];
-    await db.customFields.create({ name: newField.name.trim(), type: newField.type, options });
+    try {
+      await db.customFields.create({ name: newField.name.trim(), type: newField.type, options });
+    } catch (e) {
+      alert(e.message);
+      setCreatingField(false);
+      return;
+    }
     const cf = await db.customFields.list();
     setCustomFields(cf);
     setNewField({ name: '', type: 'text', options: '' });

@@ -9,6 +9,22 @@ function dispatch() {
 function cid() { return auth.currentCompanyId(); }
 function uid() { return auth.currentUserId(); }
 
+// Campos personalizados: a coluna real é custom_fields.field_type, com CHECK nestes valores.
+const FIELD_TYPES = ['text', 'number', 'date', 'select'];
+
+function fieldFromDb(row) {
+  if (!row) return row;
+  const { field_type, ...rest } = row;
+  return { ...rest, type: field_type };
+}
+
+function fieldToDb(data) {
+  const { type, ...rest } = data || {};
+  if (type === undefined) return rest;
+  if (!FIELD_TYPES.includes(type)) throw new Error('Tipo de campo não suportado');
+  return { ...rest, field_type: type };
+}
+
 // Dispara um evento para o webhook de integração da empresa (via servidor, sem CORS)
 async function emitIntegration(event, data) {
   try {
@@ -418,25 +434,32 @@ export const db = {
     },
   },
 
+  // No banco a coluna é field_type (com CHECK); as telas usam "type". A conversão fica só
+  // aqui, para nenhum componente precisar saber o nome real da coluna.
+  // create/update lançam erro (tipo inválido ou falha do banco) — quem chama mostra o aviso.
   customFields: {
     list: async () => {
-      const { data } = await supabase.from('custom_fields')
+      const { data, error } = await supabase.from('custom_fields')
         .select('*')
         .eq('company_id', cid())
         .order('created_at');
-      return data || [];
+      if (error) console.error('[customFields] list falhou:', error.message);
+      return (data || []).map(fieldFromDb);
     },
     create: async (data) => {
-      const { data: row } = await supabase.from('custom_fields')
-        .insert({ ...data, company_id: cid(), created_by: uid() })
+      const { data: row, error } = await supabase.from('custom_fields')
+        .insert({ ...fieldToDb(data), company_id: cid(), created_by: uid() })
         .select().single();
-      return row;
+      if (error) throw new Error('Não foi possível criar o campo: ' + error.message);
+      return fieldFromDb(row);
     },
     update: async (id, data) => {
-      await supabase.from('custom_fields').update(data).eq('id', id).eq('company_id', cid());
+      const { error } = await supabase.from('custom_fields').update(fieldToDb(data)).eq('id', id).eq('company_id', cid());
+      if (error) throw new Error('Não foi possível salvar o campo: ' + error.message);
     },
     remove: async (id) => {
-      await supabase.from('custom_fields').delete().eq('id', id).eq('company_id', cid());
+      const { error } = await supabase.from('custom_fields').delete().eq('id', id).eq('company_id', cid());
+      if (error) console.error('[customFields] remove falhou:', error.message);
     },
   },
 };
