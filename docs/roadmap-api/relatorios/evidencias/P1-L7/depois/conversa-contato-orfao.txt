@@ -1,0 +1,2 @@
+{"id":"1a7c9eb2-ca21-4d43-beb7-1cf6a89847eb","type":"individual","remote_jid":"#d47a720bfcb1","phone":"#7bdeb455c357","contact_id":"db451936-4e83-45fd-a042-dc5afe71a488","state":"human","state_since":"2026-07-19T20:40:27.7+00:00","state_by":null,"updated_at":"2026-07-19T20:40:27.7+00:00","contact":null,"last_message":null}
+[200]
