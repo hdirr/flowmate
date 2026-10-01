@@ -283,20 +283,41 @@ X-Flowmate-Signature:  sha256=<hex>`}</pre>
               </div>
 
               <p className="text-xs text-gray-500 mb-1.5">Como verificar (nó Code do n8n):</p>
+              {/* Mesmo código do INTEGRATIONS.md (Parte 2, Passo 3): corpo bruto, tempo constante
+                  e janela de 5 min. Reserializar o JSON quebra a assinatura com acento/emoji. */}
+              <p className="text-xs text-amber-600 mb-1.5">
+                No nó Webhook do n8n, ligue <b>Options → Raw Body</b>. Sem isso a verificação falha com acentos e emojis.
+              </p>
               <div className="bg-gray-900 rounded-xl p-3 overflow-x-auto">
                 <pre className="text-xs text-gray-300 whitespace-pre">{`const crypto = require('crypto');
 const secret = '${integ?.webhook_secret || 'SEU_SEGREDO'}';
-const ts   = $input.first().headers['x-flowmate-timestamp'];
-const sig  = $input.first().headers['x-flowmate-signature'];
-const body = JSON.stringify($input.first().json);
+
+const item = $input.first();
+
+// Corpo BRUTO: com "Raw Body" ligado, chega como binário base64. Nada de JSON.stringify.
+const rawBody = Buffer.from(item.binary.data.data, 'base64').toString('utf8');
+
+const ts  = item.json.headers['x-flowmate-timestamp'];
+const sig = item.json.headers['x-flowmate-signature'];
 
 const expected = 'sha256=' + crypto
   .createHmac('sha256', secret)
-  .update(\`\${ts}.\${body}\`)
+  .update(\`\${ts}.\${rawBody}\`)
   .digest('hex');
 
-if (sig !== expected) throw new Error('Assinatura inválida');
-return $input.all();`}</pre>
+const a = Buffer.from(sig || '');
+const b = Buffer.from(expected);
+if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+  throw new Error('Assinatura inválida');
+}
+
+// anti-replay: rejeita evento com mais de 5 min
+if (Math.abs(Date.now() / 1000 - Number(ts)) > 300) {
+  throw new Error('Timestamp fora da janela');
+}
+
+// só parseia depois de validar o cru
+return [{ json: JSON.parse(rawBody) }];`}</pre>
               </div>
 
               <p className="text-xs text-gray-400 mt-2">

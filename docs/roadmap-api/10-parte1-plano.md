@@ -21,6 +21,7 @@ Faça nesta ordem. ⛔ = não comece sem a condição indicada.
 | 3 | P1-S2 | Trava de assinatura fecha quando o status é desconhecido + tela de Onboarding | `11` | consulta de conferência | — |
 | 4 | P1-S4 | `/api/integrations/emit` aceita só eventos e ids válidos | `11` | — | — |
 | 5 | P1-S5 | Tirar chave e `company_id` de exemplo do `INTEGRATIONS.md` | `11` | — | — |
+| 5b | P1-S6 | Exemplo de verificação HMAC na tela de Integrações (corpo bruto, tempo constante, janela 5 min) — criada pelo tutor depois do plano | `Settings.jsx` | — | — |
 | 6 | P1-B1 | Roteador por segmentos + helpers (erro, paginação) + catálogo de eventos | `12` | — | — |
 | 7 | P1-B2 | Aceitar `Authorization: Bearer` | `12` | — | — |
 | 8 | P1-L1 a P1-L11 | Rotas de leitura (uma por commit) | `13` | — | — |
