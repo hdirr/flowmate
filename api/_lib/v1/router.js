@@ -6,8 +6,11 @@
 //
 // Rotas que não casam aqui caem no switch antigo do [...path].js, sem mudança.
 
+import { listPipelines } from './pipelines.js';
+
 export const ROUTES = [
-  // Vazia na P1-B1. As rotas entram uma por tarefa (P1-L*, P1-E*).
+  // As rotas entram uma por tarefa (P1-L*, P1-E*).
+  { method: 'GET', pattern: 'pipelines', handler: listPipelines }, // P1-L1
 ];
 
 function splitRoute(route) {
