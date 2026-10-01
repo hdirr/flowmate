@@ -38,8 +38,10 @@ async function resolveContact(companyId, { contact_id, external_id, phone }) {
 // Um agente não sabe UUID — então aceitamos id OU nome (case-insensitive).
 async function resolveFieldKeys(companyId, incoming) {
   const admin = adminClient();
-  const { data: defs } = await admin.from('custom_fields')
-    .select('id, name, type').eq('company_id', companyId);
+  // A coluna no banco é field_type (não type) — ver docs/roadmap-api/esquema-atual.md.
+  const { data: defs, error } = await admin.from('custom_fields')
+    .select('id, name, field_type').eq('company_id', companyId);
+  if (error) console.error('[v1] custom_fields falhou:', error.message);
 
   const byId = new Map((defs || []).map(f => [f.id, f]));
   const byName = new Map((defs || []).map(f => [String(f.name).toLowerCase().trim(), f]));
@@ -97,10 +99,13 @@ export async function handleFields(req, res, companyId) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'method_not_allowed' });
 
   const admin = adminClient();
-  const { data } = await admin.from('custom_fields')
-    .select('id, name, type, options').eq('company_id', companyId).order('created_at');
+  const { data, error } = await admin.from('custom_fields')
+    .select('id, name, field_type, options').eq('company_id', companyId).order('created_at');
+  if (error) console.error('[v1] custom_fields falhou:', error.message);
 
-  return res.status(200).json({ fields: data || [] });
+  // O contrato da API devolve a chave "type"; no banco a coluna é field_type.
+  const fields = (data || []).map(f => ({ id: f.id, name: f.name, type: f.field_type, options: f.options }));
+  return res.status(200).json({ fields });
 }
 
 // ─── GET /v1/contacts — lê o contato (contexto pro agente) ───
@@ -117,8 +122,9 @@ export async function handleContacts(req, res, companyId) {
     });
     if (!contact) return res.status(404).json({ error: 'contact_not_found' });
 
-    const { data: defs } = await admin.from('custom_fields')
-      .select('id, name, type').eq('company_id', companyId);
+    const { data: defs, error: defsErr } = await admin.from('custom_fields')
+      .select('id, name, field_type').eq('company_id', companyId);
+    if (defsErr) console.error('[v1] custom_fields falhou:', defsErr.message);
 
     const { data: leads } = await admin.from('crm_leads')
       .select('id, stage_id, pipeline_id').eq('contact_id', contact.id).limit(1);
