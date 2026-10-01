@@ -1,5 +1,7 @@
 import { resolveApiKey } from '../_lib/db.js';
 import { handleMessages, handleLeads, handleContacts, handleFields, handleNotes } from '../_lib/v1handlers.js';
+import { match } from '../_lib/v1/router.js';
+import { fail, V1Error } from '../_lib/v1/http.js';
 
 /**
  * API pública v1 — a boca e as mãos do n8n. Autentica por API key do tenant.
@@ -16,8 +18,8 @@ import { handleMessages, handleLeads, handleContacts, handleFields, handleNotes 
  */
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key, Authorization');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
   // Deriva a rota da URL: via rewrite (/v1/* → /api/v1/*) o parâmetro dinâmico vem vazio.
@@ -31,6 +33,21 @@ export default async function handler(req, res) {
   const apiKey = req.headers['x-api-key'] || req.query?.key;
   const companyId = await resolveApiKey(apiKey);
   if (!companyId) return res.status(401).json({ error: 'invalid_api_key' });
+
+  // 1º as rotas novas (tabela por segmentos, ex.: 'leads/:id/notes'). Se nenhuma casar,
+  // segue para o switch antigo, que fica exatamente como era (as integrações dependem dele).
+  const found = match(req.method, route);
+  if (found?.methodNotAllowed) {
+    return fail(res, 405, 'method_not_allowed', `Método ${req.method} não aceito nesta rota. Use: ${found.allow.join(', ')}.`);
+  }
+  if (found) {
+    try {
+      return await found.handler(req, res, { companyId, params: found.params });
+    } catch (e) {
+      if (e instanceof V1Error) return fail(res, e.status, e.error, e.message);
+      throw e;
+    }
+  }
 
   switch (route) {
     case 'fields':   return handleFields(req, res, companyId);
