@@ -10,7 +10,7 @@ import { listPipelines } from './pipelines.js';
 import { listLeads, getLead } from './leads.js';
 import { listContacts } from './contacts.js';
 import { listUsers } from './users.js';
-import { listConversations } from './conversations.js';
+import { listConversations, getConversation } from './conversations.js';
 
 export const ROUTES = [
   // As rotas entram uma por tarefa (P1-L*, P1-E*).
@@ -19,6 +19,7 @@ export const ROUTES = [
   { method: 'GET', pattern: 'leads/:id', handler: getLead },       // P1-L3
   { method: 'GET', pattern: 'users', handler: listUsers },         // P1-L5
   { method: 'GET', pattern: 'conversations', handler: listConversations }, // P1-L6
+  { method: 'GET', pattern: 'conversations/:id', handler: getConversation }, // P1-L7
   { method: 'GET', pattern: 'contacts', handler: listContacts },   // P1-L4 (com phone/id/external_id delega à rota antiga; PATCH/POST seguem no switch)
 ];
 

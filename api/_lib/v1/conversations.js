@@ -1,5 +1,6 @@
 import { adminClient } from '../db.js';
 import { V1Error, fail, readPaging, paged, readDate, isUuid, queryParam, isRangeBeyondEnd } from './http.js';
+import { MESSAGE_COLS, toMessage } from './messages.js';
 
 // Tipo e telefone a partir do JID. Grupo = @g.us. @lid (identificador novo do WhatsApp) não é
 // telefone. phone só sai para @s.whatsapp.net; o resto (grupo, @lid, formato desconhecido) → null.
@@ -10,12 +11,75 @@ function jidInfo(jid) {
   return { type: 'individual', phone: null };
 }
 
+const CONV_COLS = 'id, remote_jid, contact_id, state, state_since, state_by, updated_at';
+
+// conversations não tem FK para crm_contacts: segunda consulta com os contatos das conversas.
+async function loadContacts(admin, companyId, convs) {
+  const ids = [...new Set(convs.map(c => c.contact_id).filter(Boolean))];
+  const contacts = new Map();
+  if (ids.length) {
+    const { data: cs, error } = await admin.from('crm_contacts')
+      .select('id, name').eq('company_id', companyId).in('id', ids);
+    if (error) throw error;
+    for (const c of cs || []) contacts.set(c.id, { id: c.id, name: c.name });
+  }
+  return contacts;
+}
+
+// Objeto Conversa do contrato. Em grupo, phone e contact são null e state é informativo.
+function toConversation(c, contacts) {
+  const { type, phone } = jidInfo(c.remote_jid);
+  return {
+    id: c.id,
+    type,
+    remote_jid: c.remote_jid,
+    phone,
+    contact_id: c.contact_id,
+    state: c.state,
+    state_since: c.state_since,
+    state_by: c.state_by,
+    updated_at: c.updated_at,
+    contact: type === 'group' ? null : (contacts.get(c.contact_id) || null),
+  };
+}
+
 function readEnum(query, name, allowed) {
   const v = queryParam(query, name);
   if (v === undefined || v === '') return null;
   const s = String(v);
   if (!allowed.includes(s)) throw new V1Error(400, 'invalid_filter', `"${name}" aceita só ${allowed.join(' ou ')}.`);
   return s;
+}
+
+// GET /v1/conversations/{id} — uma Conversa + last_message (objeto Mensagem ou null).
+// A última mensagem é buscada por company_id + remote_jid (não só conversation_id: mensagens
+// antigas podem não ter). O FlowMate guarda só 7 dias, então last_message null é comum.
+export async function getConversation(req, res, { companyId, params }) {
+  const notFound = () => fail(res, 404, 'conversation_not_found', 'Conversa não encontrada.');
+  if (!isUuid(params.id)) return notFound();
+
+  const admin = adminClient();
+  try {
+    const { data: c, error } = await admin.from('conversations')
+      .select(CONV_COLS).eq('company_id', companyId).eq('id', params.id).maybeSingle();
+    if (error) throw error;
+    if (!c) return notFound();
+
+    const [contacts, last] = await Promise.all([
+      loadContacts(admin, companyId, [c]),
+      admin.from('whatsapp_messages').select(MESSAGE_COLS)
+        .eq('company_id', companyId).eq('remote_jid', c.remote_jid)
+        .order('timestamp', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: false })
+        .limit(1),
+    ]);
+    if (last.error) throw last.error;
+
+    return res.status(200).json({ ...toConversation(c, contacts), last_message: toMessage(last.data?.[0]) });
+  } catch (e) {
+    console.error('[v1] conversation falhou:', e?.message || e);
+    return fail(res, 500, 'internal_error', 'Erro ao consultar a conversa.');
+  }
 }
 
 // GET /v1/conversations — lista paginada de Conversa. Filtros: state, type, contactId,
@@ -51,8 +115,7 @@ export async function listConversations(req, res, { companyId }) {
 
   try {
     const { data, count, error } = await applyFilters(
-      admin.from('conversations')
-        .select('id, remote_jid, contact_id, state, state_since, state_by, updated_at', { count: 'exact' })
+      admin.from('conversations').select(CONV_COLS, { count: 'exact' })
     )
       .order('updated_at', { ascending: false, nullsFirst: false })
       .order('id', { ascending: false })
@@ -67,33 +130,8 @@ export async function listConversations(req, res, { companyId }) {
     }
     if (error) throw error;
 
-    // conversations não tem FK para crm_contacts: segunda consulta com os contatos da página.
-    const ids = [...new Set((data || []).map(c => c.contact_id).filter(Boolean))];
-    const contacts = new Map();
-    if (ids.length) {
-      const { data: cs, error: cErr } = await admin.from('crm_contacts')
-        .select('id, name').eq('company_id', companyId).in('id', ids);
-      if (cErr) throw cErr;
-      for (const c of cs || []) contacts.set(c.id, { id: c.id, name: c.name });
-    }
-
-    // Objeto Conversa do contrato. Em grupo, phone e contact são null e state é informativo.
-    const items = (data || []).map(c => {
-      const { type, phone } = jidInfo(c.remote_jid);
-      return {
-        id: c.id,
-        type,
-        remote_jid: c.remote_jid,
-        phone,
-        contact_id: c.contact_id,
-        state: c.state,
-        state_since: c.state_since,
-        state_by: c.state_by,
-        updated_at: c.updated_at,
-        contact: type === 'group' ? null : (contacts.get(c.contact_id) || null),
-      };
-    });
-    return paged(res, page, items, count);
+    const contacts = await loadContacts(admin, companyId, data || []);
+    return paged(res, page, (data || []).map(c => toConversation(c, contacts)), count);
   } catch (e) {
     console.error('[v1] conversations falhou:', e?.message || e);
     return fail(res, 500, 'internal_error', 'Erro ao consultar as conversas.');

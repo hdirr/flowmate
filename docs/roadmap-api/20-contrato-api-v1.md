@@ -135,7 +135,13 @@ Filtros: `state` (`automation`/`human`), `type` (`individual`/`group`), `contact
 `updatedAfter`, `updatedBefore`. Ordem: `updated_at` desc. Lista de **Conversa**.
 
 ### `GET /v1/conversations/{id}` (P1-L7)
-Uma **Conversa** + `last_message` (objeto **Mensagem** ou `null`). 404 `conversation_not_found`.
+Uma **Conversa** + `last_message` (objeto **Mensagem** ou `null`). 404 `conversation_not_found`
+(id que não é UUID, inexistente ou de outra empresa).
+
+`last_message` é a mensagem mais recente com o mesmo `remote_jid` da conversa (ordem `timestamp`
+desc, depois `id`). Como o FlowMate guarda só **7 dias** de mensagens, **`last_message: null` é
+comum** em conversa parada há mais de uma semana. Não significa que a conversa não tem
+mensagens: as antigas ficam só na Evolution.
 
 ### `GET /v1/conversations/{id}/messages` (P1-L8)
 Lista paginada de **Mensagem**. Query `order`: `desc` (padrão, mais novas primeiro) ou `asc`.
