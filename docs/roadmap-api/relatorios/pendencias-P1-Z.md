@@ -17,7 +17,22 @@ Cada item cita o relatório de origem.
 - **Automações:** ações feitas pela API não disparam as automações da tela. Os webhooks disparam
   normalmente. (`14`)
 - **Conversas:** `updated_at` de conversa = "última mudança de estado", não "última mensagem".
-  O texto também vai para o `20-contrato-api-v1.md` no commit da P1-L6. (resposta do tutor à P1-00)
+  Já está no `20-contrato-api-v1.md` (P1-L6). (resposta do tutor à P1-00)
+- **Conversas em `human`:** não disparam `message.received` até alguém retomar a automação pela
+  tela ou pela API (a rota de estado vem na P1-E6). A pausa não expira sozinha. (P1-L6)
+- **`@lid`:** conversa com JID `@lid` é `individual`, mas `phone` vem `null`, porque o `@lid` não
+  é telefone. (P1-L6)
+- **`contact` da conversa** vem só por `contact_id`; hoje a maioria das conversas sai com
+  `contact: null`. (P1-L6)
+
+## Para a Parte 2 (registrado nos relatórios, não é da P1-Z)
+- **Bloco 5 (conversas):** a pausa (`human`) não expira. Avaliar retorno automático para
+  `automation`, por tempo sem resposta humana ou ao encerrar o atendimento, como a Helena faz ao
+  fechar a sessão. (P1-L6)
+- **Contato da conversa:** a API usa só `contact_id`, enquanto a tela de Chats casa pelos
+  últimos 8 dígitos do telefone. Sugestão: preencher `conversations.contact_id` quando o contato
+  for criado ou atualizado com telefone que bate, e uma rotina única para preencher os antigos.
+  (P1-L6)
 - **Eventos:** empresa com nenhum evento marcado recebe todos, inclusive os criados depois.
   (`15`)
 
@@ -45,6 +60,8 @@ Cada item cita o relatório de origem.
 - Contato "Smoke Test FlowMate" (`external_id` `smoke-001`), com lead. (P1-00b)
 - Tag `teste-api` no contato `smoke-001`. (P1-L4)
 - Contatos "Teste S4" e "Teste S4b". (P1-S4)
+- Usuário de teste "hhhh" (vendedor, inativo) da empresa FlowMate; confirmado como teste pelo
+  Agadir. (P1-L5/L6)
 - Link do webhook.site em Configurações → Integrações (`5e03e930…`): **público e expira em 7
   dias**. Tirar ao fim dos testes. (P1-S4)
 - Itens que já estavam no HANDOFF: contatos "Teste 409" e "Teste Idempotencia", cobranças de
