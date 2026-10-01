@@ -29,13 +29,13 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key, Authorization');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
-  // Deriva a rota da URL: via rewrite (/v1/* → /api/v1/*) o parâmetro dinâmico vem vazio.
-  const segments = req.query?.path;
-  let route = Array.isArray(segments) ? segments.join('/') : (segments || '');
-  if (!route) {
-    const pathname = (req.url || '').split('?')[0];
-    route = pathname.replace(/^\/(api\/)?v1\//, '').replace(/\/+$/, '');
-  }
+  // Rota = caminho público. Fora do Next.js a Vercel trata [...path] como UM segmento, então o
+  // vercel.json manda toda a /v1 para /api/v1/__r?__p=<caminho> (P1-B3). O req.url continua
+  // com o caminho público (/v1/leads/x) — ele é a fonte principal, porque o cliente não forja;
+  // o __p (que vem na query e poderia ser enviado pelo cliente) fica só de reserva.
+  const pathname = (req.url || '').split('?')[0];
+  let route = pathname.replace(/^\/(api\/)?v1\/?/, '').replace(/\/+$/, '');
+  if (!route || route === '__r') route = String(req.query?.__p || '').replace(/\/+$/, '');
 
   // Ordem: x-api-key → Authorization: Bearer → ?key= (compatibilidade). Vale a primeira preenchida.
   // Aqui o Bearer é a CHAVE DA INTEGRAÇÃO (company_integrations.api_key), não o JWT do Supabase.

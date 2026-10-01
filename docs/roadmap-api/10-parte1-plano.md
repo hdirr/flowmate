@@ -24,6 +24,7 @@ Faça nesta ordem. ⛔ = não comece sem a condição indicada.
 | 5b | P1-S6 | Exemplo de verificação HMAC na tela de Integrações (corpo bruto, tempo constante, janela 5 min) — criada pelo tutor depois do plano | `Settings.jsx` | — | — |
 | 6 | P1-B1 | Roteador por segmentos + helpers (erro, paginação) + catálogo de eventos | `12` | — | — |
 | 7 | P1-B2 | Aceitar `Authorization: Bearer` | `12` | — | — |
+| 7b | P1-B3 | Rotas da /v1 com mais de um segmento (`vercel.json` + derivação da rota) — criada pelo tutor depois do plano; antes de qualquer rota com id | `vercel.json` | — | — |
 | 8 | P1-L1 a P1-L11 | Rotas de leitura (uma por commit) | `13` | — | — |
 | 9 | P1-E1 | Coluna `metadata` em contato e lead | `14` | **sim** | — |
 | 10 | P1-E2 a P1-E7 | Escritas (uma por commit) | `14` | — | P1-E1 |
