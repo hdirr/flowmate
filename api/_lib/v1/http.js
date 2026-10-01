@@ -42,6 +42,12 @@ export function readPaging(query) {
   return { pageNumber, pageSize, from, to: from + pageSize - 1 };
 }
 
+// O PostgREST recusa .range() além do fim da lista (416, código PGRST103). Para a API isso
+// não é erro: página além do fim responde items: [] (ver paged).
+export function isRangeBeyondEnd(error) {
+  return error?.code === 'PGRST103';
+}
+
 // Monta a resposta paginada a partir de { data, count } do Supabase
 // (.select(..., { count: 'exact' }).range(from, to)).
 export function paged(res, { pageNumber, pageSize }, items, totalItems) {

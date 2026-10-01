@@ -1,5 +1,5 @@
 import { adminClient } from '../db.js';
-import { fail, readPaging, paged } from './http.js';
+import { fail, readPaging, paged, isRangeBeyondEnd } from './http.js';
 
 // GET /v1/pipelines — funis da empresa com as etapas de cada um (objeto Funil do contrato).
 // Equivale ao GET /crm/v2/panel da Helena. allowed_users e company_id não saem na resposta.
@@ -13,6 +13,13 @@ export async function listPipelines(req, res, { companyId }) {
     .order('position', { ascending: true })
     .order('name', { ascending: true })
     .range(page.from, page.to);
+  if (isRangeBeyondEnd(error)) {
+    // Página além do fim: só o total, items vazio.
+    const { count: total, error: cErr } = await admin.from('crm_pipelines')
+      .select('id', { count: 'exact', head: true }).eq('company_id', companyId);
+    if (cErr) return internal(res, cErr);
+    return paged(res, page, [], total);
+  }
   if (error) return internal(res, error);
 
   const ids = (pipes || []).map(p => p.id);
