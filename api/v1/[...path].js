@@ -16,6 +16,13 @@ import { fail, V1Error } from '../_lib/v1/http.js';
  *
  * Tudo num handler só: o plano Hobby do Vercel limita o número de serverless functions.
  */
+// "Bearer <chave>" (prefixo sem diferenciar caixa) → chave. Sem prefixo ou vazio → null,
+// e a leitura segue para a próxima opção. Formato da Helena e da credencial Bearer do n8n.
+function bearerKey(header) {
+  const m = /^bearer\s+(.+)$/i.exec(String(header || '').trim());
+  return m ? m[1].trim() || null : null;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
@@ -30,7 +37,9 @@ export default async function handler(req, res) {
     route = pathname.replace(/^\/(api\/)?v1\//, '').replace(/\/+$/, '');
   }
 
-  const apiKey = req.headers['x-api-key'] || req.query?.key;
+  // Ordem: x-api-key → Authorization: Bearer → ?key= (compatibilidade). Vale a primeira preenchida.
+  // Aqui o Bearer é a CHAVE DA INTEGRAÇÃO (company_integrations.api_key), não o JWT do Supabase.
+  const apiKey = req.headers['x-api-key'] || bearerKey(req.headers.authorization) || req.query?.key;
   const companyId = await resolveApiKey(apiKey);
   if (!companyId) return res.status(401).json({ error: 'invalid_api_key' });
 
