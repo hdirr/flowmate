@@ -18,6 +18,32 @@ import Settings from './pages/Settings';
 import { auth } from './lib/auth';
 import { supabase } from './lib/supabase';
 
+function CompanyUnavailable({ onRetry, onLogout }) {
+  const [trying, setTrying] = useState(false);
+
+  async function retry() {
+    setTrying(true);
+    await onRetry();
+    setTrying(false);
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-gray-900 rounded-2xl p-6 border border-gray-800 shadow-2xl text-center space-y-4">
+        <p className="text-white font-semibold">Não foi possível verificar sua assinatura</p>
+        <p className="text-gray-500 text-sm">Verifique sua conexão e tente de novo.</p>
+        <button onClick={retry} disabled={trying}
+          className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors">
+          {trying ? 'Verificando...' : 'Tentar de novo'}
+        </button>
+        <button onClick={onLogout} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
+          Sair da conta
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [status, setStatus] = useState('loading'); // loading | unauthenticated | onboarding | ready
   const [profile, setProfile] = useState(null);
@@ -55,12 +81,6 @@ export default function App() {
     setStatus('ready');
   }
 
-  async function handleOnboardingDone() {
-    await auth.init();
-    setProfile(auth.profile());
-    setStatus('ready');
-  }
-
   async function handleLogout() {
     await auth.logout();
     setProfile(null);
@@ -94,7 +114,16 @@ export default function App() {
       </BrowserRouter>
     );
   }
-  if (status === 'onboarding')     return <Onboarding onDone={handleOnboardingDone} onLogout={handleLogout} />;
+  if (status === 'onboarding')     return <Onboarding onLogout={handleLogout} />;
+
+  // Empresa não carregou (rede/consulta): não dá pra saber a assinatura. Não é caso de
+  // cobrança — mostra a tela de tentar de novo.
+  if (status === 'ready' && !auth.company()) {
+    return <CompanyUnavailable onLogout={handleLogout} onRetry={async () => {
+      await auth.reloadCompany();
+      setGateKey(k => k + 1);
+    }} />;
+  }
 
   // Trava dura: sem assinatura ativa, a ferramenta não abre.
   if (status === 'ready' && !auth.subscriptionActive()) {

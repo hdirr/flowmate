@@ -102,9 +102,9 @@ export const auth = {
     return { session: _session };
   },
 
-  // Cadastro self-service. Reusa o Supabase Auth existente. A empresa (tenant)
-  // é criada depois, no Onboarding (RPC register_company), quando o usuário
-  // entra sem company_id.
+  // Cadastro self-service. Reusa o Supabase Auth existente. Usuário sem company_id cai no
+  // Onboarding, que hoje só orienta a assinar: empresa nova nasce no fluxo de pagamento
+  // (/api/billing/activate), não pelo navegador.
   signUp: async (email, password) => {
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) return { error: error.message };
@@ -128,14 +128,10 @@ export const auth = {
   profile: () => _profile,
   company: () => _company,
 
-  // Trava de acesso: a ferramenta só abre com assinatura ativa.
-  // Falha-aberto quando o status é desconhecido (pré-migração ou empresa não carregou),
-  // pra não trancar clientes existentes por engano. Só bloqueia status explícito não-ativo.
-  subscriptionActive: () => {
-    const s = _company?.subscription_status;
-    if (s === undefined || s === null) return true;
-    return s === 'active';
-  },
+  // Trava de acesso: a ferramenta só abre com assinatura ativa. Status desconhecido
+  // (null) conta como inativo — falhar aberto deixava qualquer empresa sem status entrar.
+  // "Empresa não carregou" (_company nulo) é outro caso: o App.jsx trata antes de chamar isto.
+  subscriptionActive: () => _company?.subscription_status === 'active',
   reloadCompany: async () => {
     if (!_profile?.company_id) return null;
     const { data } = await supabase.from('companies')

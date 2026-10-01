@@ -1,57 +1,17 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
 import { Building2, ArrowRight, LogOut } from 'lucide-react';
 
-export default function Onboarding({ onDone, onLogout }) {
-  const [companyName, setCompanyName] = useState('');
-  const [userName, setUserName] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+// Usuário logado sem empresa. A criação de empresa pelo navegador (RPC register_company)
+// foi fechada no banco em 29/09/2026: empresa nova nasce no fluxo de pagamento.
+// O arquivo fica para um futuro fluxo de convite.
+export default function Onboarding({ onLogout }) {
+  const [leaving, setLeaving] = useState(false);
 
-  async function submit(e) {
-    e.preventDefault();
-    if (!companyName.trim() || !userName.trim()) return;
-    setLoading(true);
-    setError('');
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setError('Sessão expirada. Faça login novamente.'); setLoading(false); return; }
-
-    const { error: fnError } = await supabase.rpc('register_company', {
-      p_company_name: companyName.trim(),
-      p_user_id: user.id,
-      p_user_name: userName.trim(),
-    });
-
-    if (fnError) {
-      // Se perfil já existe, apenas avança
-      if (fnError.message?.includes('duplicate key') || fnError.message?.includes('user_profiles_pkey')) {
-        onDone();
-        return;
-      }
-      setError(fnError.message);
-      setLoading(false);
-      return;
-    }
-
-    // Aplica o plano escolhido na landing (fica pendente até o pagamento)
-    try {
-      const pending = JSON.parse(localStorage.getItem('flowmate:pendingPlan') || 'null');
-      if (pending) {
-        const { data: prof } = await supabase.from('user_profiles').select('company_id').eq('id', user.id).single();
-        if (prof?.company_id) {
-          await supabase.from('companies').update({
-            plan_level: pending.plan_level,
-            plan_tier: pending.plan_tier,
-            plan_cycle: pending.plan_cycle,
-            subscription_status: 'pending',
-          }).eq('id', prof.company_id);
-        }
-        localStorage.removeItem('flowmate:pendingPlan');
-      }
-    } catch { /* segue mesmo se falhar; o Billing trata plano ausente */ }
-
-    onDone();
+  // /assinar só existe para visitante deslogado (App.jsx), então sai da conta antes.
+  async function goToCheckout() {
+    setLeaving(true);
+    await onLogout();
+    window.location.assign('/assinar');
   }
 
   return (
@@ -62,47 +22,22 @@ export default function Onboarding({ onDone, onLogout }) {
             <Building2 className="w-7 h-7 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-white">Bem-vindo ao FlowMate</h1>
-          <p className="text-gray-500 text-sm mt-1">Configure sua empresa para começar</p>
-          <button onClick={onLogout} className="mt-3 text-xs text-gray-600 hover:text-gray-400 flex items-center gap-1 mx-auto transition-colors">
-            <LogOut className="w-3 h-3" /> Sair da conta
-          </button>
         </div>
 
-        <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800 shadow-2xl">
-          <form onSubmit={submit} className="space-y-4">
-            <div>
-              <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide block mb-1.5">
-                Nome da empresa
-              </label>
-              <input value={companyName} onChange={e => setCompanyName(e.target.value)}
-                placeholder="Ex: Minha Empresa Ltda"
-                required autoFocus
-                className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-gray-600" />
-            </div>
+        <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800 shadow-2xl space-y-4">
+          <p className="text-gray-300 text-sm text-center leading-relaxed">
+            Sua conta ainda não tem uma empresa ativa. Para usar o FlowMate, assine um plano.
+          </p>
 
-            <div>
-              <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide block mb-1.5">
-                Seu nome
-              </label>
-              <input value={userName} onChange={e => setUserName(e.target.value)}
-                placeholder="Nome completo"
-                required
-                className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-gray-600" />
-            </div>
+          <button onClick={goToCheckout} disabled={leaving}
+            className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-semibold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 transition-colors">
+            <ArrowRight className="w-4 h-4" /> Assinar um plano
+          </button>
 
-            {error && (
-              <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-3 py-2 rounded-lg">
-                {error}
-              </div>
-            )}
-
-            <button type="submit" disabled={loading || !companyName.trim() || !userName.trim()}
-              className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-semibold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 transition-colors mt-2">
-              {loading
-                ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                : <><ArrowRight className="w-4 h-4" /> Criar empresa e entrar</>}
-            </button>
-          </form>
+          <button onClick={onLogout} disabled={leaving}
+            className="w-full text-gray-400 hover:text-white text-sm flex items-center justify-center gap-1.5 py-2 transition-colors">
+            <LogOut className="w-4 h-4" /> Sair
+          </button>
         </div>
       </div>
     </div>
