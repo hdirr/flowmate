@@ -205,12 +205,21 @@ async function checkout(req, res) {
 // AbacatePay chama com o secret na query (?webhookSecret=...). Evento billing.paid = pago.
 async function webhook(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
-  if (ABACATE_WEBHOOK_SECRET) {
-    // O secret pode chegar na query (?webhookSecret=) ou em header — aceita ambos.
-    const h = req.headers || {};
-    const provided = req.query?.webhookSecret
-      || h['webhook-secret'] || h['x-webhook-secret'] || h['x-abacatepay-webhook-secret'];
-    if (provided !== ABACATE_WEBHOOK_SECRET) return res.status(401).json({ error: 'unauthorized' });
+  // Sem segredo configurado o webhook fica FECHADO: aberto, qualquer um mandaria um
+  // billing.paid falso e ativaria uma conta sem pagar.
+  if (!ABACATE_WEBHOOK_SECRET) {
+    console.error('[billing] webhook recusado: ABACATEPAY_WEBHOOK_SECRET não configurado');
+    return res.status(503).json({ error: 'webhook_not_configured' });
+  }
+  // O secret pode chegar na query (?webhookSecret=) ou em header — aceita ambos.
+  const h = req.headers || {};
+  const provided = req.query?.webhookSecret
+    || h['webhook-secret'] || h['x-webhook-secret'] || h['x-abacatepay-webhook-secret'];
+  // Comparação em tempo constante, com guarda de tamanho (timingSafeEqual exige o mesmo tamanho).
+  const got = Buffer.from(String(provided || ''));
+  const want = Buffer.from(ABACATE_WEBHOOK_SECRET);
+  if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) {
+    return res.status(401).json({ error: 'unauthorized' });
   }
 
   const event = req.body?.event;
