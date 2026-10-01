@@ -40,7 +40,7 @@ Configuração: **Configurações → Integrações → Webhook de saída** (URL
   "event_id": "3f2a91c4-0d55-4b1e-9a77-6c2e5b1f0a3d",
   "event": "message.received",
   "data": { "...": "depende do evento" },
-  "company_id": "98997d76-c85b-4339-8ae9-ddafdb66a108",
+  "company_id": "00000000-0000-0000-0000-000000000000",
   "timestamp": 1784067000000
 }
 ```
@@ -125,7 +125,7 @@ if (Math.abs(Date.now() / 1000 - Number(headerTimestamp)) > 300) {
 Header `x-api-key` com a chave do tenant (Configurações → Integrações → API de entrada).
 
 ```
-x-api-key: cf5402db0602435785fa36091f3512f7
+x-api-key: SUA_CHAVE
 ```
 
 Chave inválida ou ausente → `401 { "error": "invalid_api_key" }`.
