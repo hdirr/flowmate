@@ -46,12 +46,14 @@ empresa não é erro: devolve lista vazia.
 **Lead**
 ```json
 { "id": "uuid", "contact_id": "uuid", "pipeline_id": "uuid", "pipeline_name": "Funil principal",
-  "stage_id": "uuid", "stage_name": "Qualificado", "priority": false, "metadata": {},
+  "stage_id": "uuid", "stage_name": "Qualificado", "value": 1500.5, "priority": false, "metadata": {},
   "created_at": "ISO", "updated_at": "ISO",
   "contact": { "id": "uuid", "name": "João", "phone": "5531999998888", "email": null, "tags": [] } }
 ```
+`value`: valor do negócio (`crm_leads.value`, numeric), sempre **número** ou `null`, nunca texto.
 `metadata` só passa a vir depois da P1-E1 (a coluna ainda não existe). `contact` é `null` quando o
-contato do lead não existe mais.
+contato do lead não existe mais. Na lista (`GET /v1/leads`) o `contact` é resumido (`id, name,
+phone, email, tags`); no `GET /v1/leads/{id}` é o objeto **Contato** completo.
 
 **Funil**
 ```json

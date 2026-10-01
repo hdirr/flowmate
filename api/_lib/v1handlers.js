@@ -58,7 +58,7 @@ async function resolveFieldKeys(companyId, incoming) {
 }
 
 // Devolve os campos de forma legível (nome → valor), não por UUID.
-function fieldsByName(defs, fieldsJson) {
+export function fieldsByName(defs, fieldsJson) {
   const out = {};
   for (const def of defs) {
     if (fieldsJson && Object.prototype.hasOwnProperty.call(fieldsJson, def.id)) {

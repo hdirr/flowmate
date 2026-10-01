@@ -1,8 +1,13 @@
 import { adminClient } from '../db.js';
+import { fieldsByName } from '../v1handlers.js';
 import { V1Error, fail, readPaging, paged, readDate, isUuid, queryParam, isRangeBeyondEnd } from './http.js';
 
-const LEAD_COLS = 'id, contact_id, pipeline_id, stage_id, priority, created_at, updated_at, '
+const LEAD_COLS = 'id, contact_id, pipeline_id, stage_id, value, priority, created_at, updated_at, '
   + 'contact:crm_contacts(id, name, phone, email, tags)';
+
+// No GET /v1/leads/{id} o contato vem completo (objeto Contato do contrato).
+const LEAD_FULL_COLS = 'id, contact_id, pipeline_id, stage_id, value, priority, created_at, updated_at, '
+  + 'contact:crm_contacts(id, external_id, name, phone, email, tags, fields, created_at, updated_at)';
 
 // Filtros de id: UUID inválido é erro do cliente (400), não "lista vazia".
 function readUuidFilter(query, name) {
@@ -48,12 +53,57 @@ function toLead(l, names) {
     pipeline_name: names.pipelineNames.get(l.pipeline_id) ?? null,
     stage_id: l.stage_id,
     stage_name: names.stageNames.get(l.stage_id) ?? null,
+    // crm_leads.value é numeric: sai como número (ou null), nunca texto
+    value: l.value === null || l.value === undefined ? null : Number(l.value),
     priority: l.priority,
     created_at: l.created_at,
     updated_at: l.updated_at,
     // contact_id órfão (contato apagado) ou ausente → null, sem quebrar a lista
     contact: c ? { id: c.id, name: c.name, phone: c.phone, email: c.email, tags: c.tags || [] } : null,
   };
+}
+
+// GET /v1/leads/{id} — um Lead com o contato completo (objeto Contato, fields por nome).
+// Id que não é UUID ou de outra empresa → 404 lead_not_found (nunca 500, nunca 403).
+export async function getLead(req, res, { companyId, params }) {
+  const notFound = () => fail(res, 404, 'lead_not_found', 'Lead não encontrado.');
+  if (!isUuid(params.id)) return notFound();
+
+  const admin = adminClient();
+  try {
+    const { data: l, error } = await admin.from('crm_leads')
+      .select(LEAD_FULL_COLS)
+      .eq('company_id', companyId).eq('id', params.id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!l) return notFound();
+
+    const names = await loadNames(admin, companyId);
+    const lead = toLead(l, names);
+
+    if (l.contact) {
+      const { data: defs, error: dErr } = await admin.from('custom_fields')
+        .select('id, name').eq('company_id', companyId);
+      if (dErr) throw dErr;
+      const c = l.contact;
+      // Objeto Contato do contrato. metadata entra depois da P1-E1.
+      lead.contact = {
+        id: c.id,
+        external_id: c.external_id,
+        name: c.name,
+        phone: c.phone,
+        email: c.email,
+        tags: c.tags || [],
+        fields: fieldsByName(defs || [], c.fields),
+        created_at: c.created_at,
+        updated_at: c.updated_at,
+      };
+    }
+    return res.status(200).json(lead);
+  } catch (e) {
+    console.error('[v1] lead falhou:', e?.message || e);
+    return fail(res, 500, 'internal_error', 'Erro ao consultar o lead.');
+  }
 }
 
 // GET /v1/leads — lista paginada de Lead. Filtros: pipelineId, stageId, contactId, priority,

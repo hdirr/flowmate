@@ -7,12 +7,13 @@
 // Rotas que não casam aqui caem no switch antigo do [...path].js, sem mudança.
 
 import { listPipelines } from './pipelines.js';
-import { listLeads } from './leads.js';
+import { listLeads, getLead } from './leads.js';
 
 export const ROUTES = [
   // As rotas entram uma por tarefa (P1-L*, P1-E*).
   { method: 'GET', pattern: 'pipelines', handler: listPipelines }, // P1-L1
   { method: 'GET', pattern: 'leads', handler: listLeads },         // P1-L2 (POST leads segue no switch antigo)
+  { method: 'GET', pattern: 'leads/:id', handler: getLead },       // P1-L3
 ];
 
 function splitRoute(route) {
