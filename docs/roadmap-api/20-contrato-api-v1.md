@@ -21,7 +21,11 @@ Query: `pageNumber` (padrão 1), `pageSize` (padrão 20, máximo 100).
 ```
 | Status | Quando |
 | --- | --- |
-| 400 | Parâmetro inválido ou faltando (`invalid_date`, `missing_text`, `invalid_state`...) |
+| 400 | Parâmetro inválido ou faltando (`invalid_date`, `invalid_filter`, `missing_text`, `invalid_state`...) |
+
+`invalid_filter`: filtro de id que não é UUID (`pipelineId`, `stageId`, `contactId`...) ou booleano
+diferente de `true`/`false` (`priority`). A `message` diz qual filtro. Um filtro **válido** de outra
+empresa não é erro: devolve lista vazia.
 | 401 | `invalid_api_key` |
 | 404 | Recurso não existe nesta empresa (`*_not_found`) ou rota inexistente (`not_found`) |
 | 405 | `method_not_allowed` |

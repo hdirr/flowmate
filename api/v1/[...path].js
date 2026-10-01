@@ -18,6 +18,9 @@ import { fail, V1Error } from '../_lib/v1/http.js';
  */
 // "Bearer <chave>" (prefixo sem diferenciar caixa) → chave. Sem prefixo ou vazio → null,
 // e a leitura segue para a próxima opção. Formato da Helena e da credencial Bearer do n8n.
+// Rotas atendidas pelo switch antigo (v1handlers.js). Não mudam de resposta.
+const LEGACY_ROUTES = new Set(['fields', 'contacts', 'leads', 'messages', 'notes']);
+
 function bearerKey(header) {
   const m = /^bearer\s+(.+)$/i.exec(String(header || '').trim());
   return m ? m[1].trim() || null : null;
@@ -45,11 +48,13 @@ export default async function handler(req, res) {
 
   // 1º as rotas novas (tabela por segmentos, ex.: 'leads/:id/notes'). Se nenhuma casar,
   // segue para o switch antigo, que fica exatamente como era (as integrações dependem dele).
+  // Caminho que também existe no switch antigo (ex.: GET leads é novo, POST leads é antigo):
+  // método que a tabela nova não tem segue para o handler antigo, sem virar 405 aqui.
   const found = match(req.method, route);
-  if (found?.methodNotAllowed) {
+  if (found?.methodNotAllowed && !LEGACY_ROUTES.has(route)) {
     return fail(res, 405, 'method_not_allowed', `Método ${req.method} não aceito nesta rota. Use: ${found.allow.join(', ')}.`);
   }
-  if (found) {
+  if (found?.handler) {
     try {
       return await found.handler(req, res, { companyId, params: found.params });
     } catch (e) {

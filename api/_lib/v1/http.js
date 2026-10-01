@@ -17,7 +17,7 @@ export function fail(res, status, error, message) {
 
 // Lê um parâmetro de query sem diferenciar caixa (pageNumber, PageNumber, pagenumber).
 // A Helena usa PascalCase em alguns exemplos; o n8n manda o que o usuário digitar.
-function queryParam(query, name) {
+export function queryParam(query, name) {
   if (!query) return undefined;
   if (query[name] !== undefined) return query[name];
   const want = name.toLowerCase();
