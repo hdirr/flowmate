@@ -50,6 +50,8 @@ empresa não é erro: devolve lista vazia.
   "created_at": "ISO", "updated_at": "ISO",
   "contact": { "id": "uuid", "name": "João", "phone": "5531999998888", "email": null, "tags": [] } }
 ```
+`metadata` só passa a vir depois da P1-E1 (a coluna ainda não existe). `contact` é `null` quando o
+contato do lead não existe mais.
 
 **Funil**
 ```json
