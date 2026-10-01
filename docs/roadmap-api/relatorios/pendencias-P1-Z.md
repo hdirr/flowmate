@@ -7,6 +7,8 @@ Cada item cita o relatório de origem.
 - **Chave:** `x-api-key` e `Authorization: Bearer` não devem ser enviados juntos. Vale o
   primeiro preenchido, na ordem `x-api-key` → `Bearer` → `?key=`. (P1-B2)
 - **Bearer:** o Bearer da /v1 é a chave da integração, não o JWT do Supabase. (P1-B2)
+- **Valor do lead:** `value` vem 0 até a Parte 2 (bloco 1). A coluna existe, mas o app ainda não
+  mostra nem edita. (P1-L3)
 - **Campos personalizados:** os valores de `fields` chegam como texto, inclusive em campo
   `number` (a tela grava string). (P1-00c)
 - **Automações:** ações feitas pela API não disparam as automações da tela. Os webhooks disparam

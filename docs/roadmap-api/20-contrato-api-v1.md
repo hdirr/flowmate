@@ -51,6 +51,8 @@ empresa não é erro: devolve lista vazia.
   "contact": { "id": "uuid", "name": "João", "phone": "5531999998888", "email": null, "tags": [] } }
 ```
 `value`: valor do negócio (`crm_leads.value`, numeric), sempre **número** ou `null`, nunca texto.
+`value` existe no banco, mas ainda não aparece nem é editado no app; hoje vem 0. A edição pela tela
+e pela API entra na Parte 2, bloco 1.
 `metadata` só passa a vir depois da P1-E1 (a coluna ainda não existe). `contact` é `null` quando o
 contato do lead não existe mais. Na lista (`GET /v1/leads`) o `contact` é resumido (`id, name,
 phone, email, tags`); no `GET /v1/leads/{id}` é o objeto **Contato** completo.

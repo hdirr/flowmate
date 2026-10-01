@@ -15,7 +15,7 @@ arquivado e motivo de perda, e o IVE CRM usa isso no dia a dia (revisado em 01/1
 alter table public.crm_leads
   add column if not exists title               text,
   add column if not exists description         text,
-  add column if not exists value               numeric(14,2),
+  add column if not exists value               numeric(14,2),  -- NOTA (P1-L3): a coluna JÁ EXISTE (numeric, default 0); o bloco 1 só precisa da tela e do PATCH
   add column if not exists responsible_user_id uuid references public.user_profiles(id) on delete set null,
   add column if not exists due_date            timestamptz,
   add column if not exists status              text not null default 'open'
