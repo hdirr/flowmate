@@ -1,13 +1,23 @@
 # 16 — Parte 1: roteiro de testes
 
 Comandos em bash (Git Bash no Windows). No PowerShell use `curl.exe` e aspas duplas escapadas.
-Antes de começar, defina no terminal (nunca em arquivo):
+
+**Chave de teste:** fica na variável de usuário do Windows `FLOWMATE_TEST_KEY` (o Agadir cria e
+atualiza). **Nunca escreva o valor da chave num comando**: o comando pode ficar salvo no
+allowlist do Claude Code (`.claude/settings.local.json`). Cada comando do Claude Code abre um
+terminal novo, então leia a variável no início do próprio comando e confira só o tamanho:
 
 ```bash
+# Se o processo já herdou a variável, ela vem direto; senão, lê do registro do usuário.
+[ -n "$FLOWMATE_TEST_KEY" ] || FLOWMATE_TEST_KEY=$(powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('FLOWMATE_TEST_KEY','User')" | tr -d '\r\n')
+echo "tamanho: ${#FLOWMATE_TEST_KEY}"   # 32 esperado; vazio → pare e avise o Agadir
+KEY="$FLOWMATE_TEST_KEY"
 BASE="https://flowmate-ashy.vercel.app"
-KEY="<chave de teste que o Agadir passar>"
 TEST_PHONE="<telefone do contato de teste combinado com o Agadir>"
 ```
+
+Se algum comando com o valor da chave aparecer no allowlist, remova na hora e registre no
+relatório. No fim da Parte 1 o Agadir regenera a chave e atualiza a variável.
 
 Para ver os webhooks de saída chegando, o Agadir aponta Configurações → Integrações → URL para um
 fluxo de teste no n8n dele (nó Webhook) ou outro receptor que ele escolher. Peça a ele os
