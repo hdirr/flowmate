@@ -73,6 +73,16 @@ phone, email, tags`); no `GET /v1/leads/{id}` é o objeto **Contato** completo.
 `type`: `individual` ou `group` (JID termina em `@g.us`). Em grupo, `phone` e `contact` são `null`
 e `state` é só informativo (grupos não pausam).
 
+- **`phone`**: só os dígitos antes do `@` quando o JID termina em `@s.whatsapp.net`. Para `@lid`
+  (identificador novo do WhatsApp, que **não é telefone**), grupo ou formato desconhecido:
+  `phone: null`. `@lid` e formato desconhecido contam como `individual`.
+- **`contact`**: vem só pelo `contact_id` da conversa (`{ id, name }`). Sem `contact_id`, ou com
+  contato que não existe mais: `contact: null`. Hoje a maioria das conversas não tem
+  `contact_id`.
+- **`updated_at`** = **última mudança de estado** (automation ↔ human), **não** a última mensagem.
+  A coluna não tem gatilho; só muda quando o estado muda. A lista ordena por `updated_at` desc,
+  com nulos no fim e `id` como desempate.
+
 **Mensagem**
 ```json
 { "id": "uuid", "message_id": "3EB0...", "conversation_id": "uuid",
