@@ -7,6 +7,9 @@ Cada item cita o relatório de origem.
 - **Chave:** `x-api-key` e `Authorization: Bearer` não devem ser enviados juntos. Vale o
   primeiro preenchido, na ordem `x-api-key` → `Bearer` → `?key=`. (P1-B2)
 - **Bearer:** o Bearer da /v1 é a chave da integração, não o JWT do Supabase. (P1-B2)
+- **Filtro `tag` do `GET /v1/contacts`:** é exato e diferencia maiúsculas (`teste-api` ≠
+  `TESTE-API`; `teste` não casa com `teste-api`). O `name` é "contém", sem diferenciar caixa.
+  (P1-L4)
 - **Valor do lead:** `value` vem 0 até a Parte 2 (bloco 1). A coluna existe, mas o app ainda não
   mostra nem edita. (P1-L3)
 - **Campos personalizados:** os valores de `fields` chegam como texto, inclusive em campo
@@ -40,6 +43,7 @@ Cada item cita o relatório de origem.
   (P1-00b, P1-00c)
 - Valores desses campos no contato "Teste 409". (P1-00b, P1-00c)
 - Contato "Smoke Test FlowMate" (`external_id` `smoke-001`), com lead. (P1-00b)
+- Tag `teste-api` no contato `smoke-001`. (P1-L4)
 - Contatos "Teste S4" e "Teste S4b". (P1-S4)
 - Link do webhook.site em Configurações → Integrações (`5e03e930…`): **público e expira em 7
   dias**. Tirar ao fim dos testes. (P1-S4)
