@@ -8,7 +8,7 @@
 
 import { listPipelines } from './pipelines.js';
 import { listLeads, getLead, listLeadNotes, updateLead } from './leads.js';
-import { listContacts } from './contacts.js';
+import { listContacts, updateContactTags } from './contacts.js';
 import { listUsers } from './users.js';
 import { getMessage } from './messages.js';
 import { listWebhookEvents } from './webhookEvents.js';
@@ -28,7 +28,8 @@ export const ROUTES = [
   { method: 'GET', pattern: 'conversations/:id/messages', handler: listConversationMessages }, // P1-L8
   { method: 'GET', pattern: 'messages/:id', handler: getMessage }, // P1-L9 (GET/POST /v1/messages antigos seguem no switch)
   { method: 'GET', pattern: 'webhook-events', handler: listWebhookEvents }, // P1-L10
-  { method: 'GET', pattern: 'contacts', handler: listContacts },   // P1-L4 (com phone/id/external_id delega à rota antiga; PATCH/POST seguem no switch)
+  { method: 'GET', pattern: 'contacts', handler: listContacts },
+  { method: 'POST', pattern: 'contacts/:id/tags', handler: updateContactTags }, // P1-E3   // P1-L4 (com phone/id/external_id delega à rota antiga; PATCH/POST seguem no switch)
 ];
 
 function splitRoute(route) {

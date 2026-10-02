@@ -12,7 +12,7 @@ export const WEBHOOK_EVENTS = [
   { event: 'lead.moved',                description: 'Lead mudou de etapa ou de funil', since: 'v1', available: true,  available_after: null },
   // novos da Parte 1 (ainda não emitidos):
   { event: 'contact.updated',           description: 'Contato alterado pela API', since: 'p1', available: false, available_after: 'P1-E2' },
-  { event: 'contact.tags_updated',      description: 'Tags do contato alteradas pela API', since: 'p1', available: false, available_after: 'P1-E3' },
+  { event: 'contact.tags_updated',      description: 'Tags do contato alteradas pela API', since: 'p1', available: true,  available_after: null },
   { event: 'lead.updated',              description: 'Lead alterado pela API', since: 'p1', available: true,  available_after: null },
   { event: 'note.created',              description: 'Nota interna criada pela API', since: 'p1', available: false, available_after: 'P1-E5' },
   { event: 'conversation.state_changed',description: 'Conversa mudou entre automação e humano', since: 'p1', available: false, available_after: 'P1-W1' },

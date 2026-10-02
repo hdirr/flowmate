@@ -221,6 +221,18 @@ Uma **Mensagem**, buscada pelo `message_id` do WhatsApp (o que o `POST /v1/messa
 ```
 `operation`: `InsertIfNotExists` (padrão), `DeleteIfExists`, `ReplaceAll` (mesmos nomes da Helena).
 Resposta `200 { ok, contact_id, tags, added, removed }`. Evento `contact.tags_updated` se mudou algo.
+- **Implementado na P1-E3:**
+  - **`tags`:** lista de 1 a 50 textos, até 100 caracteres cada. Espaços das pontas são
+    removidos e duplicatas da entrada são ignoradas. Lista vazia só com `ReplaceAll` (limpa
+    todas).
+  - **Comparação exata, que diferencia maiúsculas**, como o filtro `tag` do `GET /v1/contacts`.
+  - **Ordem:** a das tags atuais é mantida; as novas entram no fim.
+  - **Nada mudou** → 200 com `added: []` e `removed: []`, sem evento.
+  - **Erros:**
+    - 400 `invalid_tags` / `invalid_operation` / `invalid_body`;
+    - 404 `contact_not_found` (inexistente, de outra empresa, id que não é UUID).
+  - **Evento:** `contact.tags_updated` `{ contact_id, tags, added, removed, source: "api" }`.
+  - **A automação "tag adicionada" da tela não dispara pela API** (limitação conhecida).
 
 ### `PATCH /v1/leads/{id}` (P1-E4)
 ```json

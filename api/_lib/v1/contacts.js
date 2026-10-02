@@ -1,6 +1,7 @@
 import { adminClient } from '../db.js';
 import { handleContacts, fieldsByName } from '../v1handlers.js';
-import { fail, readPaging, paged, readDate, queryParam, isRangeBeyondEnd } from './http.js';
+import { dispatchWebhook } from '../webhooks.js';
+import { V1Error, fail, readPaging, paged, readDate, queryParam, isRangeBeyondEnd, isUuid } from './http.js';
 
 // GET /v1/contacts com phone, id ou external_id é a rota ANTIGA (devolve um contato só) e
 // segue intacta. A presença da chave na query decide, do jeito que o handler antigo lê
@@ -10,6 +11,61 @@ const LEGACY_KEYS = ['phone', 'id', 'external_id'];
 // Escapa curinga do LIKE/ILIKE (\ % _) e o * (o PostgREST trata * como %).
 function likeEscape(s) {
   return String(s).replace(/[\\%_*]/g, ch => '\\' + ch);
+}
+
+// POST /v1/contacts/{id}/tags — adiciona, remove ou substitui tags (nomes da Helena).
+// tags: lista de textos (sem duplicatas; espaços das pontas removidos; até 50 por chamada,
+// 100 caracteres cada). Comparação exata, como o filtro tag do GET /v1/contacts.
+// Resposta 200 { ok, contact_id, tags, added, removed }. Evento contact.tags_updated só se
+// mudou algo. Automações da tela (tag_added) não disparam pela API.
+const TAG_OPS = ['InsertIfNotExists', 'DeleteIfExists', 'ReplaceAll'];
+
+export async function updateContactTags(req, res, { companyId, params }) {
+  const notFound = () => fail(res, 404, 'contact_not_found', 'Contato não encontrado.');
+  if (!isUuid(params.id)) return notFound();
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
+  if (!body) throw new V1Error(400, 'invalid_body', 'Envie um objeto JSON.');
+  const operation = body.operation === undefined ? 'InsertIfNotExists' : body.operation;
+  if (!TAG_OPS.includes(operation)) {
+    throw new V1Error(400, 'invalid_operation', `"operation" aceita: ${TAG_OPS.join(', ')}.`);
+  }
+  const raw = body.tags;
+  if (!Array.isArray(raw) || raw.length > 50 || (raw.length === 0 && operation !== 'ReplaceAll')
+      || raw.some(t => typeof t !== 'string' || !t.trim() || t.trim().length > 100)) {
+    throw new V1Error(400, 'invalid_tags', '"tags" precisa ser uma lista de 1 a 50 textos (até 100 caracteres cada); vazia só com ReplaceAll.');
+  }
+  const input = [...new Set(raw.map(t => t.trim()))];
+
+  const admin = adminClient();
+  try {
+    const { data: c, error } = await admin.from('crm_contacts')
+      .select('id, tags').eq('company_id', companyId).eq('id', params.id).maybeSingle();
+    if (error) throw error;
+    if (!c) return notFound();
+
+    const cur = c.tags || [];
+    let next;
+    if (operation === 'InsertIfNotExists') next = [...cur, ...input.filter(t => !cur.includes(t))];
+    else if (operation === 'DeleteIfExists') next = cur.filter(t => !input.includes(t));
+    else next = input;
+    const added = next.filter(t => !cur.includes(t));
+    const removed = cur.filter(t => !next.includes(t));
+
+    if (added.length || removed.length) {
+      const { error: uErr } = await admin.from('crm_contacts').update({ tags: next })
+        .eq('company_id', companyId).eq('id', c.id);
+      if (uErr) throw uErr;
+      try {
+        await dispatchWebhook(companyId, 'contact.tags_updated', {
+          contact_id: c.id, tags: next, added, removed, source: 'api',
+        });
+      } catch (e) { console.error('[v1] webhook de tags falhou:', e?.message || e); }
+    }
+    return res.status(200).json({ ok: true, contact_id: c.id, tags: added.length || removed.length ? next : cur, added, removed });
+  } catch (e) {
+    console.error('[v1] tags falhou:', e?.message || e);
+    return fail(res, 500, 'internal_error', 'Erro ao alterar as tags.');
+  }
 }
 
 // GET /v1/contacts — lista paginada de Contato. Filtros: name (contém, sem caixa), tag,
