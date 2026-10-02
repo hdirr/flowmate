@@ -56,6 +56,14 @@ Cada item cita o relatório de origem.
 - **Fim da Parte 1:** o Agadir regenera a chave de teste da API e atualiza `FLOWMATE_TEST_KEY`;
   limpar de novo o allowlist (`.claude/settings.local.json`) se aparecer algum valor. (P1-S6)
 
+## Revisão de segurança (futura)
+- Evidências da P1-L7 (commits 1ff3aac e 715d42c, 9 arquivos listados no relatório) usam SHA-256
+  sem chave, reversível por força bruta; ~190 telefones de contatos expostos enquanto o repo foi
+  público. Repo tornado privado em 2026-10-01. Pendente: reescrever histórico, regenerar
+  evidências com pseudônimos não derivados, avaliar cache/forks no GitHub.
+  (Versões brutas e o script `l7mask.js` mantidos só no scratchpad local, fora do repo, até a
+  revisão.)
+
 ## Lista de limpeza (dados de teste)
 - Campo personalizado `Teste API` e os campos `Nome Faixada`, `ID`, `Nascimento`, `Opcão`.
   (P1-00b, P1-00c)

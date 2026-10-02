@@ -157,6 +157,7 @@ A0. **WhatsApp pós-incidente:** (a)–(d) feitos e confirmados (webhook v2, mig
 - **Regenerar** chaves que passaram pelo chat: a API key de integração da empresa (Configurações → Integrações → ↻) e a chave sandbox do Asaas (legado).
 
 ## GOTCHAS (erros que já aconteceram — evitar de novo)
+- **Nunca versionar dados pessoais, nem com hash; evidências usam pseudônimos não derivados (ex.: contato-001), com o mapa só fora do repo.** (Regra de 2026-10-01: as evidências da P1-L7 foram publicadas com SHA-256 sem chave, reversível por força bruta; o repo foi tornado privado. Ver "Revisão de segurança (futura)" em `docs/roadmap-api/relatorios/pendencias-P1-Z.md`.)
 - **Tela branca = ReferenceError de runtime** por variável órfã após refactor. O `vite build` NÃO pega (não é erro de sintaxe). **Antes de mandar testar após refactor grande, rode `grep` procurando referências órfãs.**
 - **Repo privado quebra deploy** no Hobby (status "Blocked / user not found"). Manter público OU garantir que o autor do commit seja o email da conta Vercel.
 - **HMAC:** assinar o **corpo bruto** (uma serialização, mesmo buffer no HMAC e no fetch). Reserializar quebra com acento/emoji.
