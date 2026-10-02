@@ -82,6 +82,45 @@ export async function getConversation(req, res, { companyId, params }) {
   }
 }
 
+// GET /v1/conversations/{id}/messages — lista paginada de Mensagem da conversa.
+// Busca por company_id + remote_jid da conversa (como o last_message). Query order: desc (padrão,
+// mais novas primeiro) ou asc; outro valor → 400 invalid_filter. Só 7 dias de mensagens no banco.
+export async function listConversationMessages(req, res, { companyId, params }) {
+  const notFound = () => fail(res, 404, 'conversation_not_found', 'Conversa não encontrada.');
+  if (!isUuid(params.id)) return notFound();
+  const ascending = (readEnum(req.query || {}, 'order', ['desc', 'asc']) || 'desc') === 'asc';
+  const page = readPaging(req.query);
+
+  const admin = adminClient();
+  try {
+    const { data: c, error } = await admin.from('conversations')
+      .select('id, remote_jid').eq('company_id', companyId).eq('id', params.id).maybeSingle();
+    if (error) throw error;
+    if (!c) return notFound();
+
+    const scope = (q) => q.eq('company_id', companyId).eq('remote_jid', c.remote_jid);
+    const { data, count, error: mErr } = await scope(
+      admin.from('whatsapp_messages').select(MESSAGE_COLS, { count: 'exact' })
+    )
+      .order('timestamp', { ascending, nullsFirst: false })
+      .order('id', { ascending })
+      .range(page.from, page.to);
+
+    if (isRangeBeyondEnd(mErr)) {
+      const { count: total, error: cErr } = await scope(
+        admin.from('whatsapp_messages').select('id', { count: 'exact', head: true })
+      );
+      if (cErr) throw cErr;
+      return paged(res, page, [], total);
+    }
+    if (mErr) throw mErr;
+    return paged(res, page, (data || []).map(toMessage), count);
+  } catch (e) {
+    console.error('[v1] conversation messages falhou:', e?.message || e);
+    return fail(res, 500, 'internal_error', 'Erro ao consultar as mensagens.');
+  }
+}
+
 // GET /v1/conversations — lista paginada de Conversa. Filtros: state, type, contactId,
 // updatedAfter/Before. Ordem updated_at desc (nulos no fim), id desc.
 // Atenção: conversations.updated_at não tem gatilho — é a última mudança de ESTADO, não a

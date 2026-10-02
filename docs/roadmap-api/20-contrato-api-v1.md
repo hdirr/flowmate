@@ -144,7 +144,11 @@ comum** em conversa parada há mais de uma semana. Não significa que a conversa
 mensagens: as antigas ficam só na Evolution.
 
 ### `GET /v1/conversations/{id}/messages` (P1-L8)
-Lista paginada de **Mensagem**. Query `order`: `desc` (padrão, mais novas primeiro) ou `asc`.
+Lista paginada de **Mensagem**. Query `order`: `desc` (padrão, mais novas primeiro) ou `asc`;
+outro valor → `400 invalid_filter`. Ordem por `timestamp` e, no empate, `id` (mesma direção).
+Mensagens com o mesmo `remote_jid` da conversa. Só há **7 dias** de mensagens: conversa parada há
+mais tempo devolve `items: []`. Conversa que não existe (ou id que não é UUID) →
+`404 conversation_not_found`.
 
 ### `GET /v1/messages/{messageId}` (P1-L9)
 Uma **Mensagem**, buscada pelo `message_id` do WhatsApp (o que o `POST /v1/messages` devolve).
