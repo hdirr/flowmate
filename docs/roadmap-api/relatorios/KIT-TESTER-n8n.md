@@ -50,6 +50,19 @@ Authorization: Bearer SUA_CHAVE
   `messageId` é o id do WhatsApp (letras e dígitos, até 128 caracteres, diferencia maiúsculas).
 - **Mensagens:** o FlowMate guarda **só 7 dias**. O mais antigo fica no WhatsApp e não sai pela
   API.
+- **Telefone:** número **estrangeiro, mande sempre com `+` e o código do país**
+  (`+14155550123`). Sem `+`, 10 dígitos e celular de 11 dígitos com `9` na 3ª posição ganham `55`
+  (Brasil); o resto vai como veio. **Ambíguo:** um número estrangeiro de 11 dígitos com `9` na 3ª
+  posição sem `+` (ex.: Rússia `7 9xx…`) é tratado como brasileiro.
+- **Mudanças de 2026-10-02 (P1-E0):**
+  - `GET /messages?phone=` e `GET /contacts?phone=` passam a achar a **conversa real** mesmo com
+    o telefone salvo sem `55` ou sem o 9º dígito. Podem vir **`state: "human"`** e **histórico**
+    onde antes vinha `automation` e lista vazia.
+  - Número estrangeiro passa a ir para o **número certo** (antes, um de 10–11 dígitos ganhava `55`
+    e ia para um número brasileiro). O `POST /conversations/{id}/messages` passa a aceitar
+    conversa com número estrangeiro (antes 422).
+  - **409 mais seguro:** o mesmo celular pode ter duas conversas (com e sem o 9º dígito). Se
+    qualquer uma estiver em `human`, o envio automático leva 409.
 
 ## 4. Rotas disponíveis
 

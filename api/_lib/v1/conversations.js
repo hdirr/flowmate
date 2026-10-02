@@ -3,7 +3,6 @@ import { V1Error, fail, readPaging, paged, readDate, isUuid, queryParam, isRange
 import { MESSAGE_COLS, toMessage } from './messages.js';
 import { setConversationState } from '../conversations.js';
 import { sendMessage } from '../sendMessage.js';
-import { jidFor } from '../db.js';
 
 // Tipo e telefone a partir do JID. Grupo = @g.us. @lid (identificador novo do WhatsApp) não é
 // telefone. phone só sai para @s.whatsapp.net; o resto (grupo, @lid, formato desconhecido) → null.
@@ -192,9 +191,10 @@ export async function sendConversationMessage(req, res, { companyId, params }) {
 
   const jid = String(c.remote_jid || '');
   const isGroup = jid.endsWith('@g.us');
-  // Só JIDs que o sendMessage sabe entregar. @lid não é telefone. E, para individual, o JID
-  // precisa sobreviver à normalização do sendMessage (senão iria para OUTRO número).
-  if (!isGroup && !(jid.endsWith('@s.whatsapp.net') && jidFor(jid) === jid)) {
+  // Só JIDs que o sendMessage sabe entregar. @lid não é telefone. O JID individual já é o
+  // número internacional: vai com "+" para o sendMessage não reinterpretá-lo (P1-E0; antes,
+  // número estrangeiro de 10–11 dígitos ganharia 55, e a rota recusava com 422).
+  if (!isGroup && !/^\d+@s\.whatsapp\.net$/.test(jid)) {
     return fail(res, 422, 'unsupported_jid', 'Esta conversa não aceita envio pela API (JID não suportado).');
   }
   // Pausa checada aqui também (antes do sendMessage), para nunca chegar perto da Evolution.
@@ -202,7 +202,8 @@ export async function sendConversationMessage(req, res, { companyId, params }) {
     return res.status(409).json({ error: 'conversation_paused', message: 'A conversa está com um humano. Nada foi enviado.', conversation_id: c.id });
   }
 
-  const result = await sendMessage({ companyId, to: jid, content, media, sender: 'automation' });
+  const to = isGroup ? jid : `+${jid.replace(/@.*/, '')}`;
+  const result = await sendMessage({ companyId, to, content, media, sender: 'automation' });
   if (result.error) {
     const status = result.status || 400;
     return res.status(status).json({

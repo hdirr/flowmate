@@ -1,9 +1,24 @@
-import { adminClient, instanceNameFor, toWhatsAppNumber, jidFor } from './db.js';
+import { adminClient, instanceNameFor, toWhatsAppNumber, twinJid } from './db.js';
 import { getOrCreateConversation, setConversationState, STATE } from './conversations.js';
 import { dispatchWebhook } from './webhooks.js';
 
 const EVOLUTION_URL = process.env.EVOLUTION_API_URL;
 const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY;
+
+// Devolve a conversa em human que bloqueia o envio automático: a própria ou a gêmea
+// (mesmo celular BR com/sem o 9º dígito). null = pode enviar. Exportada para teste.
+export async function findPausedConversation(admin, companyId, conversation, remoteJid) {
+  // Sem a própria conversa (leitura/criação falhou) não dá para saber o estado: recusa.
+  if (!conversation) return { id: null, state: STATE.HUMAN };
+  if (conversation?.state === STATE.HUMAN) return conversation;
+  const twin = twinJid(remoteJid);
+  if (!twin) return null;
+  const { data, error } = await admin.from('conversations')
+    .select('id, state').eq('company_id', companyId).eq('remote_jid', twin).maybeSingle();
+  // Na dúvida (erro ao ler a gêmea), não envia: melhor um 409 do que atropelar um humano.
+  if (error) return { id: conversation?.id ?? null, state: STATE.HUMAN };
+  return data?.state === STATE.HUMAN ? data : null;
+}
 
 /**
  * Serviço único de envio. UI (JWT) e n8n (API key) chamam esta mesma função.
@@ -36,7 +51,8 @@ export async function sendMessage({ companyId, to, sender, actorUserId = null, c
   // automático/humano (decisão de produto): o enforcement (409) vale só em 1:1.
   const isGroup = String(to || '').includes('@g.us');
   const number = isGroup ? String(to).trim() : toWhatsAppNumber(to);
-  const remoteJid = isGroup ? number : jidFor(number);
+  // JID direto do número já normalizado (normalizar duas vezes mudaria "+7 9xx…" para 55…).
+  const remoteJid = isGroup ? number : `${number}@s.whatsapp.net`;
   const instanceName = instanceNameFor(companyId);
 
   const conversation = await getOrCreateConversation(companyId, remoteJid);
@@ -46,8 +62,11 @@ export async function sendMessage({ companyId, to, sender, actorUserId = null, c
   // Sem isso, o n8n lê "automation", leva 4s no RAG, e dispara por cima do humano
   // que assumiu a conversa nesse meio-tempo. Não teve bug — a flag foi lida antes da pausa existir.
   // (Grupos pulam esta checagem: `isGroup` é false para chamadas de 1:1.)
-  if (!isGroup && sender === STATE.AUTOMATION && conversation.state === STATE.HUMAN) {
-    return { error: 'conversation_paused', status: 409, conversationId: conversation.id };
+  // Conversa gêmea (com/sem o 9º dígito, P1-E0): se QUALQUER uma das duas estiver em human,
+  // recusa. As duplicadas não são juntadas aqui (Parte 2).
+  if (!isGroup && sender === STATE.AUTOMATION) {
+    const paused = await findPausedConversation(admin, companyId, conversation, remoteJid);
+    if (paused) return { error: 'conversation_paused', status: 409, conversationId: paused.id };
   }
 
   // ─── Entrega via Evolution ───

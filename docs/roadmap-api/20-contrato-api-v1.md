@@ -106,6 +106,30 @@ O FlowMate guarda só **7 dias** de mensagens; o mais antigo fica na Evolution e
   "user_id": null, "created_at": "ISO" }
 ```
 
+### Telefone → número do WhatsApp (P1-E0)
+Regra única (`api/_lib/phone.js`), usada pela API, pela tela, pelas automações e pelos grupos:
+- começa com `+` → já tem o código do país; vale como veio (só os dígitos);
+- 10 dígitos (fixo BR ou celular antigo sem o 9) → `55` + número;
+- 11 dígitos com `9` na 3ª posição (celular BR) → `55` + número;
+- qualquer outro caso → como veio (ex.: `14155550123`, EUA com o `1`; 12–13 dígitos já com `55`).
+
+**Ambíguo:** 11 dígitos com `9` na 3ª posição que também sejam número válido de outro país (ex.:
+Rússia `7 9xx…`) são tratados como **brasileiros**. Para número estrangeiro, mande com `+`.
+O `0` de longa distância (`0` + DDD + número) **não** é removido: mande sem ele.
+Antes da P1-E0, todo número de 10–11 dígitos ganhava `55`, e número que já começava com `55`
+(inclusive DDD 55 sem o código do país) ficava como veio.
+
+**Conversa gêmea (celular BR com e sem o 9º dígito):** o WhatsApp grava muitos JIDs sem o 9
+(`55 31 9999-8888`); o FlowMate monta com ele. As duas conversas podem existir para o mesmo
+celular. Regras:
+- **Envio automático** (`POST /v1/messages`, `POST /v1/conversations/{id}/messages`, automações):
+  se **qualquer uma** das duas estiver em `human` → `409 conversation_paused`, nada enviado.
+- **`GET /v1/contacts?phone=|id=|external_id=` e `GET /v1/messages?phone=`:** procuram a conversa
+  pelo número normalizado e pela gêmea; se uma estiver em `human`, é ela que aparece. O
+  `GET /v1/messages` junta o histórico das duas. (Antes procuravam só os dígitos, sem `55`, e
+  contato salvo sem `55` saía com `conversation: null` / histórico vazio.)
+- As duplicadas **não** são juntadas (Parte 2).
+
 ---
 
 ## Leitura
@@ -342,9 +366,10 @@ Mesmas regras do `POST /v1/messages`: `sender = automation`, **409 `conversation
 conversa está em humano. Usa o `remote_jid` da conversa (funciona para grupo). JID que não seja
 `@s.whatsapp.net` nem `@g.us` → `422 unsupported_jid`. Resposta `200 { ok, message_id, conversation_id }`.
 - **Implementado na P1-E7:**
-  - **`unsupported_jid` (422)** também para conversa individual cujo número mudaria na
-    normalização do envio (ex.: número estrangeiro sem `55` de 10–11 dígitos). Assim nunca vai
-    para o número errado. `@lid` também é 422.
+  - **`unsupported_jid` (422):** `@lid` e qualquer JID individual que não seja só dígitos
+    `@s.whatsapp.net`. Desde a P1-E0 o número da conversa vai exatamente como está no JID (com
+    `+`), então conversa com número estrangeiro é aceita e vai para o número certo (antes, os de
+    10–11 dígitos eram recusados com 422).
   - **Pausa:** checada na própria rota antes do envio → `409 { error: "conversation_paused",
     message, conversation_id }`.
   - **Grupos não pausam:** o envio para grupo acontece mesmo com `state: human`.

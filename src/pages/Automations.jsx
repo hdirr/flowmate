@@ -460,9 +460,9 @@ export default function Automations() {
           await db.contacts.update(lead.contact_id, { tags });
         }
         if (action.type === 'send_whatsapp' && (action.body || action.mediaUrl) && token) {
-          let phone = (lead.contact?.phone || '').replace(/\D/g, '');
-          if (phone) {
-            if (!phone.startsWith('55') && (phone.length === 10 || phone.length === 11)) phone = '55' + phone;
+          // Telefone como está no contato: o servidor normaliza (api/_lib/phone.js).
+          const phone = String(lead.contact?.phone || '').trim();
+          if (phone.replace(/\D/g, '')) {
             const msg = (action.body || '').replace(/\{nome\}/gi, lead.contact?.name || '');
             // Bot = automação. Conversa em modo humano rejeita com 409.
             if (action.mediaUrl) {

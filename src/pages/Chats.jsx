@@ -5,6 +5,7 @@ import { db } from '../lib/store';
 import { auth } from '../lib/auth';
 import { Send, Search, MessageCircle, Wifi, WifiOff, Loader2, RefreshCw, Paperclip, FileText, X, UserCog, Bot, Users, UsersRound, Plus, Mic, Film, Image as ImageIcon } from 'lucide-react';
 import ContactPanel from '../components/ContactPanel';
+import { toWhatsAppNumber } from '../../api/_lib/phone.js';
 
 function timeLabel(ts) {
   const d = ts > 1e10 ? new Date(ts) : new Date(ts * 1000);
@@ -20,13 +21,10 @@ function normalizePhone(jid) {
   return String(jid || '').replace(/@.*/, '').replace(/\D/g, '');
 }
 
-// Garante número no formato internacional pro WhatsApp (adiciona 55 se faltar)
-function toWhatsAppNumber(digits) {
-  const d = digits.replace(/\D/g, '');
-  if (d.startsWith('55')) return d;
-  if (d.length === 10 || d.length === 11) return '55' + d;
-  return d;
-}
+// toWhatsAppNumber (regra única com o servidor) vem de api/_lib/phone.js. O selected.phone de
+// conversa 1:1 já está normalizado: vai ao servidor com "+" para não ser normalizado de novo
+// (normalizar duas vezes mudaria um "+7 9xx…" para 55…).
+const intl = phone => `+${phone}`;
 
 // Dois telefones representam o mesmo contato? Compara pelos últimos 8 dígitos
 function samePhone(a, b) {
@@ -334,7 +332,7 @@ export default function Chats() {
     if (!phone) return;
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
-    const res = await fetch(`/api/conversations/state?to=${encodeURIComponent(phone)}`, {
+    const res = await fetch(`/api/conversations/state?to=${encodeURIComponent(intl(phone))}`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     if (res.ok) setConvState(await res.json());
@@ -523,8 +521,8 @@ export default function Chats() {
     setSending(true);
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
-    // Grupo manda o JID cru (@g.us); 1:1 normaliza o telefone.
-    const target = selected.isGroup ? selected.jid : toWhatsAppNumber(selected.phone);
+    // Grupo manda o JID cru (@g.us); 1:1 manda o telefone já normalizado, com "+".
+    const target = selected.isGroup ? selected.jid : intl(selected.phone);
     await fetch('/api/whatsapp/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -548,7 +546,7 @@ export default function Chats() {
     await fetch('/api/conversations/state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ to: selected.phone, state: 'automation' }),
+      body: JSON.stringify({ to: intl(selected.phone), state: 'automation' }),
     });
     await loadConvState(selected.phone);
     setResuming(false);
@@ -587,7 +585,7 @@ export default function Chats() {
 
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
-      const target = selected.isGroup ? selected.jid : toWhatsAppNumber(selected.phone);
+      const target = selected.isGroup ? selected.jid : intl(selected.phone);
       const res = await fetch('/api/whatsapp/send-media', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },

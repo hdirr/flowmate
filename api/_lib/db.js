@@ -42,15 +42,5 @@ export function instanceNameFor(companyId) {
   return `flowmate-${companyId}`;
 }
 
-// Normaliza um número para o formato internacional usado pelo WhatsApp.
-export function toWhatsAppNumber(input) {
-  const d = String(input || '').replace(/\D/g, '');
-  if (!d) return '';
-  if (d.startsWith('55')) return d;
-  if (d.length === 10 || d.length === 11) return '55' + d;
-  return d;
-}
-
-export function jidFor(number) {
-  return `${toWhatsAppNumber(number)}@s.whatsapp.net`;
-}
+// Regra de telefone/JID: fonte única em phone.js (o front também usa).
+export { toWhatsAppNumber, jidFor, twinJid } from './phone.js';

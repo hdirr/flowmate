@@ -1,4 +1,4 @@
-import { adminClient } from './db.js';
+import { adminClient, jidFor, twinJid } from './db.js';
 import { sendMessage } from './sendMessage.js';
 import { dispatchWebhook } from './webhooks.js';
 
@@ -10,6 +10,29 @@ function samePhone(a, b) {
   const da = digits(a), db = digits(b);
   if (!da || !db) return false;
   return da.endsWith(db) || db.endsWith(da) || da.slice(-8) === db.slice(-8);
+}
+
+// JIDs possíveis da conversa de um telefone (P1-E0): o normalizado (com 55, mesma regra do
+// envio) e a gêmea com/sem o 9º dígito. Antes as rotas usavam só os dígitos, sem o 55, e
+// contato salvo sem 55 não achava a conversa. Vazio → [].
+function conversationJids(phone) {
+  if (!digits(phone)) return [];
+  const jid = jidFor(phone);
+  const twin = twinJid(jid);
+  return twin ? [jid, twin] : [jid];
+}
+
+// Conversa de um telefone, como as rotas antigas devolvem ({ id, state, state_since }).
+// Com gêmeas, a que está em human ganha (o consumidor não pode ler "automation" se alguém
+// assumiu numa delas); senão, a do JID normalizado.
+async function findConversationByPhone(admin, companyId, phone) {
+  const jids = conversationJids(phone);
+  if (!jids.length) return null;
+  const { data } = await admin.from('conversations')
+    .select('id, state, state_since, remote_jid').eq('company_id', companyId).in('remote_jid', jids);
+  const list = data || [];
+  const pick = list.find(c => c.state === 'human') || list.find(c => c.remote_jid === jids[0]) || list[0];
+  return pick ? { id: pick.id, state: pick.state, state_since: pick.state_since } : null;
 }
 
 // Acha o contato por id, external_id ou telefone (casando pelos últimos 8 dígitos).
@@ -129,11 +152,7 @@ export async function handleContacts(req, res, companyId) {
     const { data: leads } = await admin.from('crm_leads')
       .select('id, stage_id, pipeline_id').eq('contact_id', contact.id).limit(1);
 
-    const { data: conv } = await admin.from('conversations')
-      .select('id, state, state_since')
-      .eq('company_id', companyId)
-      .eq('remote_jid', `${digits(contact.phone)}@s.whatsapp.net`)
-      .single();
+    const conv = await findConversationByPhone(admin, companyId, contact.phone);
 
     return res.status(200).json({
       contact: {
@@ -240,14 +259,14 @@ export async function handleMessages(req, res, companyId) {
     if (!phone) return res.status(400).json({ error: 'missing_phone' });
     const limit = Math.min(Number(req.query?.limit) || 50, 200);
 
-    const jid = `${digits(phone)}@s.whatsapp.net`;
-    const { data: conv } = await admin.from('conversations')
-      .select('id, state, state_since').eq('company_id', companyId).eq('remote_jid', jid).single();
+    const conv = await findConversationByPhone(admin, companyId, phone);
 
-    const { data: msgs } = await admin.from('whatsapp_messages')
+    // Histórico das duas gêmeas juntas (é o mesmo celular). Telefone sem dígitos → vazio.
+    const jids = conversationJids(phone);
+    const { data: msgs } = jids.length ? await admin.from('whatsapp_messages')
       .select('content, from_me, sender, timestamp, message_type, media_url, message_id')
-      .eq('company_id', companyId).eq('remote_jid', jid)
-      .order('timestamp', { ascending: false }).limit(limit);
+      .eq('company_id', companyId).in('remote_jid', jids)
+      .order('timestamp', { ascending: false }).limit(limit) : { data: [] };
 
     return res.status(200).json({
       conversation: conv || { state: 'automation' },

@@ -78,10 +78,10 @@ async function runAutomations(event, payload) {
 
       if (action.type === 'send_whatsapp' && (action.body || action.mediaUrl) && payload.contact_id) {
         const { data: contact } = await supabase.from('crm_contacts').select('phone, name').eq('id', payload.contact_id).single();
-        let phone = (contact?.phone || '').replace(/\D/g, '');
-        if (phone) {
-          // Formato internacional (adiciona 55 se faltar)
-          if (!phone.startsWith('55') && (phone.length === 10 || phone.length === 11)) phone = '55' + phone;
+        // Telefone como está no contato: o servidor normaliza (regra única em api/_lib/phone.js,
+        // que respeita o "+" de número estrangeiro).
+        const phone = String(contact?.phone || '').trim();
+        if (phone.replace(/\D/g, '')) {
           const msg = (action.body || '').replace(/\{nome\}/gi, contact?.name || '');
           // Envia de verdade pela Evolution API (mesmo caminho do Chat)
           const { data: { session } } = await supabase.auth.getSession();
