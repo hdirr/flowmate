@@ -52,6 +52,12 @@ Cada item cita o relatório de origem.
 - **P1-Z, tags:** hoje as tags diferenciam maiúsculas (`VIP` ≠ `vip`) na tela, no filtro da L4 e
   na E3. Decidir na P1-Z se normaliza (e como migrar as existentes) ou se mantém e só documenta.
   (decisão do tutor no bloco do tester)
+- **P1-E0 (junto):** `toWhatsAppNumber` acrescenta `55` a qualquer número de 10–11 dígitos;
+  número estrangeiro sem código do país iria para um número brasileiro errado no
+  `POST /v1/messages` antigo e no `sendMessage`. A E7 se protege (422); a rota antiga não.
+  (P1-E7)
+- **P1-E7, envio real:** aguardando o Agadir confirmar a conversa de teste (número dele) para 1
+  envio real + o teste do 409. (P1-E7)
 - **409 `conversation_paused`, teste pendente:** o tutor pediu o teste só no contato `smoke-001`,
   mas ele **não tem telefone nem conversa** (verificado em 2026-10-02). Não testado; aguarda o
   Agadir indicar uma conversa de teste segura (número de teste dele).
