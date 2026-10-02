@@ -272,6 +272,15 @@ Resposta `200 { ok, contact_id, tags, added, removed }`. Evento `contact.tags_up
 { "text": "Cliente pediu proposta por e-mail" }
 ```
 Grava em `crm_notes` no contato do lead, `auto: true`. `201` com a **Nota**. Evento `note.created`.
+- **Implementado na P1-E5:**
+  - **`text`:** obrigatório, até 8000 caracteres → `400 missing_text` / `text_too_long`.
+  - **`user_id` opcional:** o autor; precisa ser um usuário da empresa (`GET /v1/users`), senão
+    `400 invalid_field`. Sem ele, a nota fica sem autor (`user_id: null`).
+  - **Erros:**
+    - `404 lead_not_found` (inexistente, de outra empresa, id que não é UUID);
+    - `422 lead_without_contact` (lead sem contato).
+  - **Evento:** `note.created` `{ note_id, contact_id, lead_id, text, source: "api" }`.
+  - A nota aparece no `GET /v1/leads/{id}/notes` de todos os leads do mesmo contato.
 
 ### `PATCH /v1/conversations/{id}` (P1-E6)
 ```json

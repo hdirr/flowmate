@@ -212,6 +212,55 @@ export async function updateLead(req, res, ctx) {
   return getLead(req, res, ctx);
 }
 
+// POST /v1/leads/{id}/notes — cria nota no CONTATO do lead (as notas são do contato).
+// { text, user_id? }: text obrigatório (até 8000); user_id opcional = autor, precisa ser usuário
+// da mesma empresa. auto: true (veio da API, como o POST /v1/notes antigo). 201 com a Nota.
+// Evento note.created. Lead sem contato → 422 lead_without_contact.
+export async function createLeadNote(req, res, { companyId, params }) {
+  const notFound = () => fail(res, 404, 'lead_not_found', 'Lead não encontrado.');
+  if (!isUuid(params.id)) return notFound();
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
+  if (!body) throw new V1Error(400, 'invalid_body', 'Envie um objeto JSON.');
+  if (typeof body.text !== 'string' || !body.text.trim()) throw new V1Error(400, 'missing_text', '"text" é obrigatório.');
+  if (body.text.length > 8000) throw new V1Error(400, 'text_too_long', '"text" aceita até 8000 caracteres.');
+  if (body.user_id !== undefined && body.user_id !== null && !isUuid(String(body.user_id))) {
+    throw badField('user_id', 'precisa ser o id de um usuário (GET /v1/users)');
+  }
+
+  const admin = adminClient();
+  try {
+    const { data: lead, error } = await admin.from('crm_leads')
+      .select('id, contact_id').eq('company_id', companyId).eq('id', params.id).maybeSingle();
+    if (error) throw error;
+    if (!lead) return notFound();
+    if (!lead.contact_id) return fail(res, 422, 'lead_without_contact', 'O lead não tem contato para receber a nota.');
+
+    if (body.user_id) {
+      const { data: u, error: uErr } = await admin.from('user_profiles')
+        .select('id').eq('company_id', companyId).eq('id', body.user_id).maybeSingle();
+      if (uErr) throw uErr;
+      if (!u) return fail(res, 400, 'invalid_field', '"user_id": usuário não encontrado nesta empresa.');
+    }
+
+    const { data: n, error: iErr } = await admin.from('crm_notes')
+      .insert({ company_id: companyId, contact_id: lead.contact_id, text: body.text, auto: true, user_id: body.user_id || null })
+      .select('id, contact_id, text, auto, user_id, created_at').single();
+    if (iErr) throw iErr;
+
+    try {
+      await dispatchWebhook(companyId, 'note.created', {
+        note_id: n.id, contact_id: n.contact_id, lead_id: lead.id, text: n.text, source: 'api',
+      });
+    } catch (e) { console.error('[v1] webhook de nota falhou:', e?.message || e); }
+
+    // Objeto Nota do contrato
+    return res.status(201).json({ id: n.id, contact_id: n.contact_id, text: n.text, auto: n.auto, user_id: n.user_id, created_at: n.created_at });
+  } catch (e) {
+    console.error('[v1] create note falhou:', e?.message || e);
+    return fail(res, 500, 'internal_error', 'Erro ao criar a nota.');
+  }
+}
+
 // GET /v1/leads/{id}/notes — notas do lead, paginadas, mais recentes primeiro.
 // As notas são do CONTATO (crm_notes.contact_id), então lista as do contato do lead.
 // Autor: só user_id (sem e-mail; nulo quando veio de automação ou da API).
