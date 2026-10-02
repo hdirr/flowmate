@@ -7,6 +7,8 @@ ficam em **Configurações → Integrações**, na sua empresa no FlowMate.
 ## 1. O básico
 - **URL base:** `https://flowmate-ashy.vercel.app/v1`
 - **Formato:** JSON, UTF-8. Datas em ISO 8601 (UTC). `timestamp` de mensagem em segundos.
+- **Envie sempre `Content-Type: application/json`** em POST e PATCH, com JSON válido. Um corpo que
+  não é JSON é recusado antes de chegar à API: **400 com o corpo vazio**, sem `error`.
 - **Isolamento:** a chave só enxerga a sua empresa. Um id de outra empresa responde **404**,
   nunca 403.
 - **Modelo mental:** o FlowMate é o único caminho para o WhatsApp. O n8n **nunca** fala com a
@@ -36,12 +38,13 @@ Authorization: Bearer SUA_CHAVE
 
   | Status | Códigos |
   | --- | --- |
-  | 400 | `invalid_filter`, `invalid_date`, `invalid_field`, `invalid_body`, `empty_update`, `invalid_state`, `invalid_tags`, `invalid_operation`, `stage_not_found` |
+  | 400 | `invalid_filter`, `invalid_date`, `invalid_field`, `invalid_body`, `empty_update`, `invalid_state`, `invalid_tags`, `invalid_operation`, `stage_not_found`, `missing_text`, `text_too_long`, `missing_content` |
   | 401 | `invalid_api_key` |
   | 404 | `*_not_found`; rota inexistente → `not_found` |
   | 405 | `method_not_allowed` |
   | 409 | `conversation_paused` |
-  | 422 | `unsupported_for_group` |
+  | 422 | `unsupported_for_group`, `unsupported_jid`, `lead_without_contact` |
+  | 502 | a Evolution recusou o envio |
 
 - **Ids:** contatos, leads, conversas etc. são UUID; um id que não é UUID responde 404. O
   `messageId` é o id do WhatsApp (letras e dígitos, até 128 caracteres, diferencia maiúsculas).
@@ -82,8 +85,10 @@ Authorization: Bearer SUA_CHAVE
 | `PATCH /contacts` | `{ "phone": "…", "name": "…", "tags": […], "fields": { "Nome do campo": "valor" } }` | campos por **id ou nome**; inexistente volta em `unknown_fields` |
 | `POST /notes` | `{ "phone": "…", "text": "…" }` | nota interna no contato |
 | `PATCH /leads/{id}` | `{ "stage_name": "Negociação", "pipeline_name": "Funil principal", "priority": true, "value": 1500 }` | move de etapa e funil; `metadata` ainda não |
-| `POST /contacts/{id}/tags` | `{ "tags": ["vip"], "operation": "InsertIfNotExists" }` | também `DeleteIfExists` e `ReplaceAll` |
-| `PATCH /conversations/{id}` | `{ "state": "human" }` ou `{ "state": "automation" }` | grupo → 422 |
+| `POST /leads/{id}/notes` | `{ "text": "Cliente pediu proposta", "user_id": "<USER_ID>" }` | nota no contato do lead; `user_id` (autor) opcional, de `GET /users`; 201 com a nota |
+| `POST /contacts/{id}/tags` | `{ "tags": ["vip"], "operation": "InsertIfNotExists" }` | também `DeleteIfExists` e `ReplaceAll`. **Tags diferenciam maiúsculas: `VIP` e `vip` são tags diferentes** |
+| `PATCH /conversations/{id}` | `{ "state": "human" }` ou `{ "state": "automation" }` | grupo → 422; gera `conversation.state_changed` (`changed_by: "api"`) |
+| `POST /conversations/{id}/messages` | `{ "content": "Olá!" }` (+ `media` opcional) | envia pela conversa (serve para grupo); **409** se a conversa estiver em `human`; `@lid` → 422 `unsupported_jid` |
 
 Exemplo curto (n8n → nó HTTP Request ou `curl`):
 ```bash
@@ -94,9 +99,7 @@ curl -X PATCH "https://flowmate-ashy.vercel.app/v1/leads/<LEAD_ID>" \
 
 **Ainda não existem:**
 - criar contato sem lead (`POST /contacts` novo);
-- `metadata`;
-- criar nota pelo lead;
-- enviar mensagem pela conversa (`POST /conversations/{id}/messages`).
+- `metadata`.
 
 **Ações feitas pela API não disparam as automações da tela** (os webhooks disparam).
 
@@ -116,9 +119,11 @@ depois. Marcar filtra. **Sempre roteie pelo campo `event`.**
 | `lead.moved` | Lead mudou de etapa ou de funil |
 | `lead.updated` | Lead alterado pela API (`PATCH /leads/{id}`), com `changes` |
 | `contact.tags_updated` | Tags alteradas pela API (`POST /contacts/{id}/tags`), com `added`/`removed` |
+| `note.created` | Nota criada pela API (`POST /leads/{id}/notes`) |
+| `conversation.state_changed` | Conversa mudou entre `automation` e `human`; `changed_by`: `user` (tela), `phone` (respondeu pelo celular) ou `api`; `previous_state` e `user_id` |
 
-**Ainda não saem** (`available: false`): `contact.updated`, `note.created`,
-`conversation.state_changed`, `whatsapp.connection`. Assinar não dá erro, mas nada chega.
+**Ainda não saem** (`available: false`): `contact.updated`, `whatsapp.connection`. Assinar não
+dá erro, mas nada chega. A tela de Integrações mostra só os eventos que já saem.
 
 **Envelope** de todo POST:
 ```json
@@ -171,6 +176,7 @@ O mesmo exemplo aparece na tela de Integrações, já com o seu segredo.
 3. **Não reaja aos próprios envios:** o `message.sent` com `sender: "automation"` é seu.
 4. **Conversa em `human` não gera `message.received`** e **não volta sozinha** para
    `automation`. Retome com `PATCH /conversations/{id}` `{ "state": "automation" }` ou pela tela.
+   Assine `conversation.state_changed` para saber quando um humano assume ou devolve.
 5. **Idempotência de lead:** use sempre o mesmo `external_id`.
 6. **Sem limite de requisições ainda, mas seja gentil:** no máximo algumas por segundo.
 

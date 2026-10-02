@@ -6,7 +6,8 @@
 >
 > ## Estado atual (roteiro da API `/v1` — `docs/roadmap-api/`)
 > - **Últimas etapas concluídas:** leitura L1–L11 (até P1-L11 `b1d0f83`/`f3b05d1`) e, no bloco do tester n8n, P1-E4 `PATCH /v1/leads/{id}` (`8d2e784`), P1-E6 `PATCH /v1/conversations/{id}` (`d6e519e`), P1-E3 `POST /v1/contacts/{id}/tags` (`efefd45`). Relatórios em `docs/roadmap-api/relatorios/`.
-> - **Bloco do tester n8n:** código pronto; kit em `relatorios/KIT-TESTER-n8n.md` e roteiro em `relatorios/ROTEIRO-ISOLAMENTO.md`. **Falta:** o Agadir criar a empresa do tester (passo a passo no runbook abaixo, seção "onboarding manual") e rodar o roteiro de isolamento com dado real. P1-E1, P1-E2, P1-E5, P1-E7, P1-W1, P1-W3 e P1-Z pendentes.
+> - **Bloco do tester n8n:** código pronto; kit em `relatorios/KIT-TESTER-n8n.md` e roteiro em `relatorios/ROTEIRO-ISOLAMENTO.md`. **Falta:** o Agadir criar a empresa do tester (passo a passo no runbook abaixo, seção "onboarding manual") e rodar o roteiro de isolamento com dado real.
+> - **Bloco seguinte (2026-10-02):** P1-W1 `conversation.state_changed` (`5a1f82a`), P1-E5 `POST /v1/leads/{id}/notes` (`d7d69c3`), P1-E7 `POST /v1/conversations/{id}/messages` (`9941d03`), P1-W3 tela lendo o catálogo de eventos (`cca1a6d`). **Falta do Agadir:** roteiro de tela/celular da W1 + smoke 1.8 (mensagem chegando no Chats), conversa de teste para o envio real e o 409 da E7, conferir a tela de Integrações. Pendentes no roteiro: P1-E1, P1-E2, P1-E0 (aprovação), P1-S3/P1-W2 (chave da Evolution) e P1-Z.
 > - **Bloqueadas:** P1-S3 e P1-W2 aguardam a troca da chave da Evolution (`EVOLUTION_API_KEY`) e a criação do `WEBHOOK_SECRET`; P1-E0 aguarda aprovação do tutor.
 > - **Pendências acumuladas:** `docs/roadmap-api/relatorios/pendencias-P1-Z.md`.
 >
