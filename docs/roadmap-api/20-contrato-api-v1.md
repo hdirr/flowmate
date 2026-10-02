@@ -284,8 +284,8 @@ Resposta: a **Conversa**. Evento `conversation.state_changed` (P1-W1) com `chang
   - **Mesmo estado que já está** → 200, sem mudança (`state_since` não muda).
   - **Pela API, `state_by` fica `null`**, igual a quando o dono responde pelo celular. Ainda não
     há como distinguir; o `changed_by` do evento resolve isso na P1-W1.
-  - **Evento:** ainda **nenhum**; `conversation.state_changed` só passa a sair na P1-W1 (no
-    catálogo, `available: false`).
+  - **Evento (desde a P1-W1):** `conversation.state_changed` com `changed_by: "api"`, só quando
+    o estado muda de fato.
   - **Erros:**
     - 400 `invalid_state` / `invalid_body`;
     - 404 `conversation_not_found` (inexistente, de outra empresa, id que não é UUID);
@@ -313,5 +313,5 @@ Envelope igual ao de hoje: `{ event_id, event, data, company_id, timestamp }`, a
 | `contact.tags_updated` | `{ contact_id, tags, added, removed, source: "api" }` |
 | `lead.updated` | `{ lead_id, contact_id, stage_id, pipeline_id, priority, changes: [..], source: "api" }` |
 | `note.created` | `{ note_id, contact_id, lead_id, text, source: "api" }` |
-| `conversation.state_changed` | `{ conversation_id, contact_id, remote_jid, state, previous_state, changed_by, user_id }` — `changed_by`: `user` (alguém da equipe pela tela: botão ou envio), `phone` (respondeu pelo celular), `api` |
+| `conversation.state_changed` | `{ conversation_id, contact_id, remote_jid, state, previous_state, changed_by, user_id }` — `changed_by`: `user` (alguém da equipe pela tela: botão ou envio), `phone` (respondeu pelo celular), `api`. `user_id`: quem pausou pela tela (envio ou botão "pausar"); `null` ao devolver para automação pelo botão, pelo celular e pela API. Só sai quando o estado muda de fato; grupos não geram o evento. (P1-W1) |
 | `whatsapp.connection` | `{ status: "connected" \| "disconnected", phone, instance }` |

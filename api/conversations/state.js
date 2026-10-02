@@ -33,7 +33,9 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Estado inválido' });
     }
     const conversation = await getOrCreateConversation(who.companyId, remoteJid);
-    await setConversationState(conversation.id, state, state === STATE.HUMAN ? who.userId : null);
+    // source 'user': veio do botão da tela (ao devolver para automação o actor vai nulo e,
+    // sem isto, o evento sairia como 'phone').
+    await setConversationState(conversation.id, state, state === STATE.HUMAN ? who.userId : null, 'user');
     return res.status(200).json({ ok: true, state });
   }
 

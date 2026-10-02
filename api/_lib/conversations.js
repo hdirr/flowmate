@@ -1,4 +1,5 @@
 import { adminClient } from './db.js';
+import { dispatchWebhook } from './webhooks.js';
 
 // Estados possíveis de uma conversa. Vocabulário genérico: o Flowmate não sabe o que é "IA",
 // ele sabe o que é automação.
@@ -68,14 +69,43 @@ export async function getOrCreateConversation(companyId, remoteJid) {
 }
 
 // Transiciona o estado da conversa. state_by = usuário que pausou (null se veio do celular).
-export async function setConversationState(conversationId, state, actorUserId = null) {
+// source diz quem mudou ('user' tela, 'api', 'phone' celular); sem source, deduz pelo actor
+// (com usuário = 'user', sem = 'phone') — assim sendMessage e handleWebhook não mudam.
+// Se o estado mudou de fato, dispara conversation.state_changed (P1-W1).
+export async function setConversationState(conversationId, state, actorUserId = null, source = null) {
   const admin = adminClient();
+  let before = null;
+  try {
+    const { data } = await admin.from('conversations')
+      .select('company_id, contact_id, remote_jid, state').eq('id', conversationId).maybeSingle();
+    before = data;
+  } catch (e) { console.error('[conversations] leitura antes da troca falhou:', e?.message || e); }
+
   await admin.from('conversations').update({
     state,
     state_since: new Date().toISOString(),
     state_by: actorUserId,
     updated_at: new Date().toISOString(),
   }).eq('id', conversationId);
+
+  // O webhook do cliente nunca pode derrubar nem segurar a troca de estado: este código também
+  // roda no fluxo de mensagens (dono respondeu pelo celular). try/catch + limite de 3 s.
+  if (before && before.state !== state) {
+    try {
+      await Promise.race([
+        dispatchWebhook(before.company_id, 'conversation.state_changed', {
+          conversation_id: conversationId,
+          contact_id: before.contact_id,
+          remote_jid: before.remote_jid,
+          state,
+          previous_state: before.state,
+          changed_by: source || (actorUserId ? 'user' : 'phone'),
+          user_id: actorUserId,
+        }),
+        new Promise(resolve => setTimeout(resolve, 3000)),
+      ]);
+    } catch (e) { console.error('[conversations] webhook state_changed falhou:', e?.message || e); }
+  }
 }
 
 // Uma mensagem fromMe cujo message_id o Flowmate NÃO conhece foi enviada do celular do dono.

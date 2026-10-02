@@ -147,8 +147,8 @@ export async function updateConversation(req, res, { companyId, params }) {
       return fail(res, 422, 'unsupported_for_group', 'Grupos não alternam entre automação e humano.');
     }
     if (c.state !== state) {
-      // actorUserId nulo: veio da API, não de um usuário da tela
-      await setConversationState(c.id, state, null);
+      // actorUserId nulo + source 'api': o evento sai com changed_by: "api" (P1-W1)
+      await setConversationState(c.id, state, null, 'api');
       ({ data: c, error } = await load());
       if (error) throw error;
     }
