@@ -168,9 +168,22 @@ Uma **Mensagem**, buscada pelo `message_id` do WhatsApp (o que o `POST /v1/messa
 
 ### `GET /v1/webhook-events` (P1-L10)
 ```json
-{ "items": [ { "event": "lead.moved", "description": "Lead mudou de etapa ou de funil" } ] }
+{ "items": [
+  { "event": "lead.moved", "description": "Lead mudou de etapa ou de funil", "since": "v1",
+    "available": true, "available_after": null },
+  { "event": "conversation.state_changed", "description": "Conversa mudou entre automação e humano",
+    "since": "p1", "available": false, "available_after": "P1-W1" } ] }
 ```
-Sem paginação (lista curta e fixa).
+- **Paginação:** nenhuma (lista curta e fixa); `pageSize`/`pageNumber` são ignorados.
+- **Status de cada evento:**
+  - `available: true` = o evento já é emitido hoje;
+  - `available: false` = ainda não sai, e `available_after` diz a etapa de que ele depende.
+
+  Assinar um evento com `available: false` não dá erro, mas nada chega até a etapa sair.
+- **Fonte:** o catálogo `api/_lib/events.js`.
+- **É o catálogo, não a assinatura da empresa.** A assinatura é feita em Configurações →
+  Integrações. Com **nenhum** evento marcado, a empresa recebe **todos**, inclusive os que
+  passarem a existir depois.
 
 ---
 
