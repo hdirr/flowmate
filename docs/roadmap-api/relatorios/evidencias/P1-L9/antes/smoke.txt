@@ -1,0 +1,18 @@
+1.1 {"fields":[{"id":"8f2da0e6-038e-4976-91eb-5a097a51001b","name":"Teste API","type":"text","options":[]},{"id":"e4ae19fc-ce5a-4efd-b60a-bff01ec5e6c6","name":"Nome Faixada","type":"text","options":[]},{"id":"5cf663f9-0f2b-4ad3-b7f3-af286a9bdf23","name":"ID","type":"number","options":[]},{"id":"cc2cf232-d4cf-4c09-8d6f-87efdc7a37e8","name":"Nascimento","type":"date","options":[]},{"id":"bfd18171-a35f-4482-8247-b3db1b9b34d4","name":"Opcão","type":"select","options":["A","B"]}]} [200]
+1.2 {"contact":{"id":"14cd40ae-28ea-471e-8667-f593b2108c25","external_id":"TESTE-409","name":"pessoa-004","phone":"tel-188","email":"","tags":[],"fields":{"Teste API":"valor-001","Nome Faixada":"valor-002","ID":"valor-003","Nascimento":"valor-004","Opcão":"valor-005"}},"lead":{"id":"1c4c9d79-4bbf-4b78-966a-b922cad54820","stage_id":"692bc63c-473a-442d-a9da-c344d35db6a6","pipeline_id":"35d51530-57b0-4a39-923d-ea10a45f75d1"},"conversation":null} [200]
+1.3 {"conversation":{"state":"automation"},"messages":[]} [200]
+1.4 {"ok":true,"created":false,"contact_id":"5ab1852c-1b8a-4438-b748-b95a8517d7e5","lead_id":"4addb5d2-18a7-45b6-b59c-ec506299ad7f","unknown_fields":[]} [200]
+1.5 {"error":"invalid_api_key"} [401]
+1.6 {"error":"not_found","route":"naoexiste"} [404]
+1.6b {"error":"not_found","route":"qualquercoisa"} [404]
+1.7a  [405]
+1.7b  [404]
+semchave {"error":"invalid_api_key"} [401]
+PUT {"error":"method_not_allowed"} [405]
+notes405 {"error":"method_not_allowed"} [405]
+api-v1 {"fields":[{"id":"8f2da0e6-038e-4976-91eb-5a097a51001b","name":"Teste API","type":"text","options":[]},{"id":"e4ae19fc-ce5a-4efd-b60a-bff01ec5e6c6","name":"Nome Faixada","type":"text","options":[]},{"id":"5cf663f9-0f2b-4ad3-b7f3-af286a9bdf23","name":"ID","type":"number","options":[]},{"id":"cc2cf232-d4cf-4c09-8d6f-87efdc7a37e8","name":"Nascimento","type":"date","options":[]},{"id":"bfd18171-a35f-4482-8247-b3db1b9b34d4","name":"Opcão","type":"select","options":["A","B"]}]} [200]
+OPTIONS:
+HTTP/1.1 204 No Content
+Access-Control-Allow-Headers: Content-Type, x-api-key, Authorization
+Access-Control-Allow-Methods: GET, POST, PATCH, PUT, DELETE, OPTIONS
+Access-Control-Allow-Origin: *
