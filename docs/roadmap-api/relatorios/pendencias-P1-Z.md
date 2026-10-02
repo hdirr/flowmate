@@ -29,6 +29,9 @@ Cada item cita o relatório de origem.
 - **Bloco 5 (conversas):** a pausa (`human`) não expira. Avaliar retorno automático para
   `automation`, por tempo sem resposta humana ou ao encerrar o atendimento, como a Helena faz ao
   fechar a sessão. (P1-L6)
+- **Conversas `@lid`:** as 4 conversas `@lid` não têm nenhuma mensagem gravada (nem por JID nem
+  por `conversation_id`). Verificar se o mesmo contato tem outra conversa `@s.whatsapp.net`
+  (duplicada) ou se só não há mensagens. (P1-L7)
 - **Contato da conversa:** a API usa só `contact_id`, enquanto a tela de Chats casa pelos
   últimos 8 dígitos do telefone. Sugestão: preencher `conversations.contact_id` quando o contato
   for criado ou atualizado com telefone que bate, e uma rotina única para preencher os antigos.
