@@ -1,0 +1,2 @@
+{"pageNumber":1,"pageSize":1,"totalPages":2,"totalItems":2,"hasMorePages":true,"items":[{"id":"701d12a1-25cd-4436-b342-557d5e18bd22","contact_id":"5ab1852c-1b8a-4438-b748-b95a8517d7e5","text":"nota-001","auto":true,"user_id":null,"created_at":"2026-10-02T03:32:40.065739+00:00"}]}
+[200]
