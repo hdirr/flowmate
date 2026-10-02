@@ -103,7 +103,7 @@ export async function listContacts(req, res, ctx) {
   try {
     const { data, count, error } = await applyFilters(
       admin.from('crm_contacts')
-        .select('id, external_id, name, phone, email, tags, fields, created_at, updated_at', { count: 'exact' })
+        .select('id, external_id, name, phone, email, tags, fields, metadata, created_at, updated_at', { count: 'exact' })
     )
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })
@@ -123,7 +123,7 @@ export async function listContacts(req, res, ctx) {
       .select('id, name').eq('company_id', companyId);
     if (dErr) throw dErr;
 
-    // Objeto Contato do contrato. metadata entra depois da P1-E1.
+    // Objeto Contato do contrato.
     const items = (data || []).map(c => ({
       id: c.id,
       external_id: c.external_id,
@@ -132,6 +132,7 @@ export async function listContacts(req, res, ctx) {
       email: c.email,
       tags: c.tags || [],
       fields: fieldsByName(defs || [], c.fields),
+      metadata: c.metadata || {},
       created_at: c.created_at,
       updated_at: c.updated_at,
     }));

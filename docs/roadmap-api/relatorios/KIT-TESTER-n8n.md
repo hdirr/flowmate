@@ -84,7 +84,7 @@ Authorization: Bearer SUA_CHAVE
 | `POST /leads` | `{ "external_id": "seu-id", "name": "…", "phone": "…", "fields": {…} }` | idempotente por `external_id` (`created: false` = já existia, foi atualizado) |
 | `PATCH /contacts` | `{ "phone": "…", "name": "…", "tags": […], "fields": { "Nome do campo": "valor" } }` | campos por **id ou nome**; inexistente volta em `unknown_fields` |
 | `POST /notes` | `{ "phone": "…", "text": "…" }` | nota interna no contato |
-| `PATCH /leads/{id}` | `{ "stage_name": "Negociação", "pipeline_name": "Funil principal", "priority": true, "value": 1500 }` | move de etapa e funil; `metadata` ainda não |
+| `PATCH /leads/{id}` | `{ "stage_name": "Negociação", "pipeline_name": "Funil principal", "priority": true, "value": 1500 }` | move de etapa e funil; `metadata` faz merge (`null` remove a chave; até 50 chaves / 16 KB) |
 | `POST /leads/{id}/notes` | `{ "text": "Cliente pediu proposta", "user_id": "<USER_ID>" }` | nota no contato do lead; `user_id` (autor) opcional, de `GET /users`; com autor sai `auto: false`, sem autor `auto: true`; 201 com a nota |
 | `POST /contacts/{id}/tags` | `{ "tags": ["vip"], "operation": "InsertIfNotExists" }` | também `DeleteIfExists` e `ReplaceAll`. **Tags diferenciam maiúsculas: `VIP` e `vip` são tags diferentes** |
 | `PATCH /conversations/{id}` | `{ "state": "human" }` ou `{ "state": "automation" }` | grupo → 422; gera `conversation.state_changed` (`changed_by: "api"`) |
@@ -97,9 +97,10 @@ curl -X PATCH "https://flowmate-ashy.vercel.app/v1/leads/<LEAD_ID>" \
   -d '{ "stage_name": "Negociação" }'
 ```
 
-**Ainda não existem:**
-- criar contato sem lead (`POST /contacts` novo);
-- `metadata`.
+**Ainda não existe:** criar contato sem lead (`POST /contacts` novo).
+
+**`metadata`:** objeto livre seu (id no seu sistema, origem…). Sai em contatos e leads das rotas
+novas (`{}` quando vazio); grava pelo `PATCH /leads/{id}`.
 
 **Ações feitas pela API não disparam as automações da tela** (os webhooks disparam).
 

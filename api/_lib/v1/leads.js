@@ -1,14 +1,14 @@
 import { adminClient } from '../db.js';
 import { fieldsByName } from '../v1handlers.js';
 import { dispatchWebhook } from '../webhooks.js';
-import { V1Error, fail, readPaging, paged, readDate, isUuid, queryParam, isRangeBeyondEnd } from './http.js';
+import { V1Error, fail, readPaging, paged, readDate, isUuid, queryParam, isRangeBeyondEnd, mergeMetadata, sameJson } from './http.js';
 
-const LEAD_COLS = 'id, contact_id, pipeline_id, stage_id, value, priority, created_at, updated_at, '
+const LEAD_COLS = 'id, contact_id, pipeline_id, stage_id, value, priority, metadata, created_at, updated_at, '
   + 'contact:crm_contacts(id, name, phone, email, tags)';
 
 // No GET /v1/leads/{id} o contato vem completo (objeto Contato do contrato).
-const LEAD_FULL_COLS = 'id, contact_id, pipeline_id, stage_id, value, priority, created_at, updated_at, '
-  + 'contact:crm_contacts(id, external_id, name, phone, email, tags, fields, created_at, updated_at)';
+const LEAD_FULL_COLS = 'id, contact_id, pipeline_id, stage_id, value, priority, metadata, created_at, updated_at, '
+  + 'contact:crm_contacts(id, external_id, name, phone, email, tags, fields, metadata, created_at, updated_at)';
 
 // Filtros de id: UUID inválido é erro do cliente (400), não "lista vazia".
 function readUuidFilter(query, name) {
@@ -44,7 +44,7 @@ async function loadNames(admin, companyId) {
   return { pipelineNames, stageNames };
 }
 
-// Objeto Lead do contrato (20-contrato-api-v1.md). metadata entra depois da P1-E1.
+// Objeto Lead do contrato (20-contrato-api-v1.md).
 function toLead(l, names) {
   const c = l.contact;
   return {
@@ -57,6 +57,7 @@ function toLead(l, names) {
     // crm_leads.value é numeric: sai como número (ou null), nunca texto
     value: l.value === null || l.value === undefined ? null : Number(l.value),
     priority: l.priority,
+    metadata: l.metadata || {},
     created_at: l.created_at,
     updated_at: l.updated_at,
     // contact_id órfão (contato apagado) ou ausente → null, sem quebrar a lista
@@ -87,7 +88,7 @@ export async function getLead(req, res, { companyId, params }) {
         .select('id, name').eq('company_id', companyId);
       if (dErr) throw dErr;
       const c = l.contact;
-      // Objeto Contato do contrato. metadata entra depois da P1-E1.
+      // Objeto Contato do contrato.
       lead.contact = {
         id: c.id,
         external_id: c.external_id,
@@ -96,6 +97,7 @@ export async function getLead(req, res, { companyId, params }) {
         email: c.email,
         tags: c.tags || [],
         fields: fieldsByName(defs || [], c.fields),
+        metadata: c.metadata || {},
         created_at: c.created_at,
         updated_at: c.updated_at,
       };
@@ -144,7 +146,7 @@ async function resolveTargetStage(admin, companyId, body, currentPipelineId) {
 }
 
 // PATCH /v1/leads/{id} — move de etapa/funil, prioridade e valor. Campos personalizados são do
-// contato (PATCH /v1/contacts); metadata só depois da P1-E1. Resposta: o Lead (como o GET).
+// contato (PATCH /v1/contacts); metadata faz merge (null remove a chave). Resposta: o Lead (como o GET).
 // Eventos: lead.moved (se a etapa mudou, payload igual ao de hoje) e lead.updated (se algo mudou).
 export async function updateLead(req, res, ctx) {
   const { companyId, params } = ctx;
@@ -153,7 +155,6 @@ export async function updateLead(req, res, ctx) {
 
   const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
   if (!body) throw new V1Error(400, 'invalid_body', 'Envie um objeto JSON.');
-  if (body.metadata !== undefined) throw badField('metadata', 'ainda não disponível (depende da P1-E1)');
   const wantsStage = body.stage_id !== undefined || body.stage_name !== undefined;
   if (!wantsStage && body.pipeline_name !== undefined) throw badField('pipeline_name', 'use junto com stage_name');
   if (body.priority !== undefined && typeof body.priority !== 'boolean') throw badField('priority', 'use true ou false');
@@ -161,14 +162,16 @@ export async function updateLead(req, res, ctx) {
       && !(typeof body.value === 'number' && Number.isFinite(body.value) && body.value >= 0 && body.value < 1e12)) {
     throw badField('value', 'número maior ou igual a 0, ou null');
   }
-  if (!wantsStage && body.priority === undefined && body.value === undefined) {
-    throw new V1Error(400, 'empty_update', 'Nada para alterar. Campos aceitos: stage_id, stage_name, pipeline_name, priority, value.');
+  // Valida o formato antes de ler o banco (o limite de tamanho é checado no merge).
+  if (body.metadata !== undefined) mergeMetadata({}, body.metadata);
+  if (!wantsStage && body.priority === undefined && body.value === undefined && body.metadata === undefined) {
+    throw new V1Error(400, 'empty_update', 'Nada para alterar. Campos aceitos: stage_id, stage_name, pipeline_name, priority, value, metadata.');
   }
 
   const admin = adminClient();
   try {
     const { data: lead, error } = await admin.from('crm_leads')
-      .select('id, contact_id, pipeline_id, stage_id, priority, value')
+      .select('id, contact_id, pipeline_id, stage_id, priority, value, metadata')
       .eq('company_id', companyId).eq('id', params.id).maybeSingle();
     if (error) throw error;
     if (!lead) return notFound();
@@ -185,6 +188,10 @@ export async function updateLead(req, res, ctx) {
     if (body.value !== undefined) {
       const cur = lead.value === null || lead.value === undefined ? null : Number(lead.value);
       if (body.value !== cur) { patch.value = body.value; changes.push('value'); }
+    }
+    if (body.metadata !== undefined) {
+      const merged = mergeMetadata(lead.metadata, body.metadata);
+      if (!sameJson(merged, lead.metadata || {})) { patch.metadata = merged; changes.push('metadata'); }
     }
 
     if (changes.length) {
@@ -206,6 +213,7 @@ export async function updateLead(req, res, ctx) {
       } catch (e) { console.error('[v1] webhook de lead falhou:', e?.message || e); }
     }
   } catch (e) {
+    if (e instanceof V1Error) throw e; // metadata_too_large etc. (o roteador responde 400)
     console.error('[v1] update lead falhou:', e?.message || e);
     return fail(res, 500, 'internal_error', 'Erro ao alterar o lead.');
   }

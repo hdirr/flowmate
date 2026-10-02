@@ -41,7 +41,9 @@ empresa não é erro: devolve lista vazia.
   "email": "j@x.com", "tags": ["vip"], "fields": { "Convênio": "Unimed" },
   "metadata": { "erp_id": "C-77" }, "created_at": "ISO", "updated_at": "ISO" }
 ```
-`fields` sai **por nome** do campo (como no `GET /v1/contacts` atual). `metadata` existe depois do P1-E1.
+`fields` sai **por nome** do campo (como no `GET /v1/contacts` atual). `metadata` (P1-E1): objeto livre
+da integração, `{}` quando vazio; sai nas rotas novas (`GET /v1/contacts` em lista e o contato do
+`GET /v1/leads/{id}`), **não** na rota antiga `GET /v1/contacts?phone=|id=|external_id=`.
 
 **Lead**
 ```json
@@ -53,7 +55,7 @@ empresa não é erro: devolve lista vazia.
 `value`: valor do negócio (`crm_leads.value`, numeric), sempre **número** ou `null`, nunca texto.
 `value` existe no banco, mas ainda não aparece nem é editado no app; hoje vem 0. A edição pela tela
 e pela API entra na Parte 2, bloco 1.
-`metadata` só passa a vir depois da P1-E1 (a coluna ainda não existe). `contact` é `null` quando o
+`metadata` (P1-E1) sai no `GET /v1/leads` e no `GET /v1/leads/{id}`, `{}` quando vazio. `contact` é `null` quando o
 contato do lead não existe mais. Na lista (`GET /v1/leads`) o `contact` é resumido (`id, name,
 phone, email, tags`); no `GET /v1/leads/{id}` é o objeto **Contato** completo.
 
@@ -246,13 +248,16 @@ Resposta `200 { ok, contact_id, tags, added, removed }`. Evento `contact.tags_up
 - Resposta: o **Lead** atualizado. Eventos: `lead.moved` (se a etapa mudou, payload igual ao de
   hoje) e `lead.updated` (sempre que algo mudou, com `changes: ["stage_id","priority",...]`).
 - Campos personalizados **não** entram aqui: eles são do contato (`PATCH /v1/contacts`).
-- **Implementado na P1-E4** (sem `metadata`, que depende da P1-E1):
+- **`metadata` (P1-E1):** objeto; merge com o atual — chave com `null` é removida, as outras são
+  sobrescritas, as não enviadas ficam. Até 50 chaves e 16 KB depois do merge
+  (`400 metadata_too_large`); fora de objeto → `400 invalid_field`. Sem mudança efetiva não entra em
+  `changes`. O `lead.updated` sai com `changes: ["metadata"]` (o valor não vai no evento).
+- **Implementado na P1-E4:**
   - **Campos aceitos:** `stage_id` | `stage_name` (+ `pipeline_name` opcional), `priority`
     (`true`/`false`) e `value` (número ≥ 0, ou `null`). Campos desconhecidos são ignorados.
   - **Etapa:** procurada só nos funis da empresa. Nome sem diferenciar caixa e sem curinga. Se o
     nome existir em vários funis e não vier `pipeline_name`, vale o funil atual do lead.
   - **Erros (400):**
-    - `metadata` → `invalid_field` (ainda não disponível);
     - `priority` ou `value` inválidos → `invalid_field`;
     - `pipeline_name` sem `stage_name` → `invalid_field`;
     - nenhum campo aceito → `empty_update`;

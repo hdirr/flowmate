@@ -80,3 +80,39 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export function isUuid(value) {
   return typeof value === 'string' && UUID_RE.test(value);
 }
+
+// metadata (P1-E1): objeto JSON livre do contato/lead, só da API. Merge: chave com valor null
+// é removida; as outras são sobrescritas; chaves não enviadas ficam. Limite: 50 chaves e 16 KB
+// serializado (400 metadata_too_large). Fora de objeto → 400 invalid_field.
+const METADATA_MAX_KEYS = 50;
+const METADATA_MAX_BYTES = 16 * 1024;
+
+export function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+export function mergeMetadata(current, incoming) {
+  if (!isPlainObject(incoming)) {
+    throw new V1Error(400, 'invalid_field', '"metadata": precisa ser um objeto JSON.');
+  }
+  const out = { ...(isPlainObject(current) ? current : {}) };
+  for (const [k, v] of Object.entries(incoming)) {
+    if (v === null) delete out[k];
+    else out[k] = v;
+  }
+  if (Object.keys(out).length > METADATA_MAX_KEYS
+      || Buffer.byteLength(JSON.stringify(out), 'utf8') > METADATA_MAX_BYTES) {
+    throw new V1Error(400, 'metadata_too_large', `"metadata" aceita até ${METADATA_MAX_KEYS} chaves e 16 KB.`);
+  }
+  return out;
+}
+
+// Compara dois valores JSON sem depender da ordem das chaves (para saber se algo mudou).
+function canonical(v) {
+  if (Array.isArray(v)) return v.map(canonical);
+  if (isPlainObject(v)) return Object.fromEntries(Object.keys(v).sort().map(k => [k, canonical(v[k])]));
+  return v;
+}
+export function sameJson(a, b) {
+  return JSON.stringify(canonical(a ?? null)) === JSON.stringify(canonical(b ?? null));
+}
