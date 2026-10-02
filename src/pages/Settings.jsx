@@ -4,14 +4,13 @@ import { RotateCcw, ShieldCheck, Smartphone, Wifi, WifiOff, Loader2, RefreshCw, 
 import { supabase } from '../lib/supabase';
 import { db } from '../lib/store';
 import QRCode from 'react-qrcode-logo';
+import { WEBHOOK_EVENTS } from '../../api/_lib/events.js';
 
-const OUTBOUND_EVENTS = [
-  { value: 'message.received', label: 'Mensagem recebida',    hint: 'só quando a conversa está em automação' },
-  { value: 'message.sent',     label: 'Mensagem enviada',     hint: 'inclui o campo sender (human | automation)' },
-  { value: 'contact.created',  label: 'Contato criado' },
-  { value: 'lead.created',     label: 'Lead criado' },
-  { value: 'lead.moved',       label: 'Lead mudou de etapa' },
-];
+// A lista oficial dos eventos é api/_lib/events.js (a mesma do GET /v1/webhook-events).
+// A tela mostra só os que já saem hoje (available: true) — P1-W3.
+const OUTBOUND_EVENTS = WEBHOOK_EVENTS
+  .filter(e => e.available)
+  .map(e => ({ value: e.event, label: e.label || e.description, hint: e.hint }));
 
 // Normaliza URLs coladas do painel (ex: webhook.site dá a URL de VISUALIZAÇÃO,
 // que não recebe POST). Converte pra URL que de fato aceita a requisição.
