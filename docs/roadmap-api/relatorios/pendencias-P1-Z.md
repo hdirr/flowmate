@@ -55,16 +55,14 @@ Cada item cita o relatório de origem.
 - **P1-E0 (junto):** `toWhatsAppNumber` acrescenta `55` a qualquer número de 10–11 dígitos;
   número estrangeiro sem código do país iria para um número brasileiro errado no
   `POST /v1/messages` antigo e no `sendMessage`. A E7 se protege (422); a rota antiga não.
-  (P1-E7)
+  (P1-E7) **Decisão do Agadir (2026-10-02): entra no escopo da P1-E0.**
 - **P1-E7, envio real:** aguardando o Agadir confirmar a conversa de teste (número dele) para 1
   envio real + o teste do 409. (P1-E7)
 - **409 `conversation_paused`, teste pendente:** o tutor pediu o teste só no contato `smoke-001`,
   mas ele **não tem telefone nem conversa** (verificado em 2026-10-02). Não testado; aguarda o
   Agadir indicar uma conversa de teste segura (número de teste dele).
-- **P1-E5 (`POST /v1/leads/{id}/notes`):** testar ali a **nota com autor** (`user_id`
-  preenchido) no `GET /v1/leads/{id}/notes`: só a tela cria nota com autor e não havia nenhuma
-  na P1-L11. Uma nota escrita pela tela no contato `smoke-001` serve. (decisão do tutor na
-  P1-L11)
+- **P1-E5:** nota com autor coberta na E5; **nota com `user_id` sai `auto: false`** (decisão do
+  Agadir, `dbb23bc`).
 
 ## Corrigir no `HANDOFF.md`
 - `supabase_whatsapp_cache.sql` **foi** rodada (`whatsapp_instances.updated_at` existe, com
