@@ -63,6 +63,10 @@ Cada item cita o relatório de origem.
   evidências com pseudônimos não derivados, avaliar cache/forks no GitHub.
   (Versões brutas e o script `l7mask.js` mantidos só no scratchpad local, fora do repo, até a
   revisão.)
+- Refazer o teste de isolamento entre empresas com dado real quando houver uma segunda empresa
+  com dados. Hoje só a empresa `98997d76…` tem mensagens (P1-L9) e a IVE não tem leads (P1-L3).
+  O isolamento está garantido pelo filtro `company_id` em todas as consultas da /v1, mas só foi
+  testado com ids inexistentes.
 
 ## Lista de limpeza (dados de teste)
 - Campo personalizado `Teste API` e os campos `Nome Faixada`, `ID`, `Nascimento`, `Opcão`.
