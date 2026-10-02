@@ -2,6 +2,8 @@ import { adminClient } from '../db.js';
 import { V1Error, fail, readPaging, paged, readDate, isUuid, queryParam, isRangeBeyondEnd } from './http.js';
 import { MESSAGE_COLS, toMessage } from './messages.js';
 import { setConversationState } from '../conversations.js';
+import { sendMessage } from '../sendMessage.js';
+import { jidFor } from '../db.js';
 
 // Tipo e telefone a partir do JID. Grupo = @g.us. @lid (identificador novo do WhatsApp) não é
 // telefone. phone só sai para @s.whatsapp.net; o resto (grupo, @lid, formato desconhecido) → null.
@@ -158,6 +160,58 @@ export async function updateConversation(req, res, { companyId, params }) {
     console.error('[v1] update conversation falhou:', e?.message || e);
     return fail(res, 500, 'internal_error', 'Erro ao alterar a conversa.');
   }
+}
+
+// POST /v1/conversations/{id}/messages — envia pela conversa (sender = automation), com as
+// mesmas regras do POST /v1/messages: 409 conversation_paused se estiver em human (grupo não
+// pausa). Chama sendMessage, sem alterá-lo. 200 { ok, message_id, conversation_id }.
+export async function sendConversationMessage(req, res, { companyId, params }) {
+  const notFound = () => fail(res, 404, 'conversation_not_found', 'Conversa não encontrada.');
+  if (!isUuid(params.id)) return notFound();
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
+  if (!body) throw new V1Error(400, 'invalid_body', 'Envie um objeto JSON.');
+  const content = typeof body.content === 'string' && body.content.trim() ? body.content : null;
+  const media = body.media && typeof body.media === 'object' && !Array.isArray(body.media) ? body.media : null;
+  if (body.media !== undefined && body.media !== null && (!media || typeof media.url !== 'string' || !media.url)) {
+    throw new V1Error(400, 'invalid_field', '"media": objeto com url (e type: image, video ou document).');
+  }
+  if (!content && !media) throw new V1Error(400, 'missing_content', 'Envie "content" ou "media".');
+
+  const admin = adminClient();
+  let c;
+  try {
+    const { data, error } = await admin.from('conversations').select(CONV_COLS)
+      .eq('company_id', companyId).eq('id', params.id).maybeSingle();
+    if (error) throw error;
+    c = data;
+  } catch (e) {
+    console.error('[v1] conversation send (leitura) falhou:', e?.message || e);
+    return fail(res, 500, 'internal_error', 'Erro ao consultar a conversa.');
+  }
+  if (!c) return notFound();
+
+  const jid = String(c.remote_jid || '');
+  const isGroup = jid.endsWith('@g.us');
+  // Só JIDs que o sendMessage sabe entregar. @lid não é telefone. E, para individual, o JID
+  // precisa sobreviver à normalização do sendMessage (senão iria para OUTRO número).
+  if (!isGroup && !(jid.endsWith('@s.whatsapp.net') && jidFor(jid) === jid)) {
+    return fail(res, 422, 'unsupported_jid', 'Esta conversa não aceita envio pela API (JID não suportado).');
+  }
+  // Pausa checada aqui também (antes do sendMessage), para nunca chegar perto da Evolution.
+  if (!isGroup && c.state === 'human') {
+    return res.status(409).json({ error: 'conversation_paused', message: 'A conversa está com um humano. Nada foi enviado.', conversation_id: c.id });
+  }
+
+  const result = await sendMessage({ companyId, to: jid, content, media, sender: 'automation' });
+  if (result.error) {
+    const status = result.status || 400;
+    return res.status(status).json({
+      error: result.error,
+      message: status === 409 ? 'A conversa está com um humano. Nada foi enviado.' : 'Não foi possível enviar.',
+      conversation_id: result.conversationId || c.id,
+    });
+  }
+  return res.status(200).json({ ok: true, message_id: result.messageId, conversation_id: result.conversationId });
 }
 
 // GET /v1/conversations — lista paginada de Conversa. Filtros: state, type, contactId,

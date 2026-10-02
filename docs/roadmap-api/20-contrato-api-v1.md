@@ -309,6 +309,18 @@ Resposta: a **Conversa**. Evento `conversation.state_changed` (P1-W1) com `chang
 Mesmas regras do `POST /v1/messages`: `sender = automation`, **409 `conversation_paused`** se a
 conversa está em humano. Usa o `remote_jid` da conversa (funciona para grupo). JID que não seja
 `@s.whatsapp.net` nem `@g.us` → `422 unsupported_jid`. Resposta `200 { ok, message_id, conversation_id }`.
+- **Implementado na P1-E7:**
+  - **`unsupported_jid` (422)** também para conversa individual cujo número mudaria na
+    normalização do envio (ex.: número estrangeiro sem `55` de 10–11 dígitos). Assim nunca vai
+    para o número errado. `@lid` também é 422.
+  - **Pausa:** checada na própria rota antes do envio → `409 { error: "conversation_paused",
+    message, conversation_id }`.
+  - **Grupos não pausam:** o envio para grupo acontece mesmo com `state: human`.
+  - **Erros:**
+    - `400 missing_content` / `invalid_field` (`media` sem `url`) / `invalid_body`;
+    - `404 conversation_not_found`;
+    - `502` vindo da Evolution (`delivery_failed` ou a mensagem dela).
+  - **Evento:** o mesmo `message.sent` do `POST /v1/messages` (`sender: "automation"`).
 
 ---
 
