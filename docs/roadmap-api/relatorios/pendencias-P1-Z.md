@@ -39,6 +39,12 @@ Cada item cita o relatório de origem.
 - **Eventos:** empresa com nenhum evento marcado recebe todos, inclusive os criados depois.
   (`15`)
 
+## Decisões para etapas da Parte 1
+- **P1-W3 (tela de Integrações):** a lista de eventos da tela passa a ler o catálogo
+  `api/_lib/events.js` (fonte única com o `GET /v1/webhook-events`) e mostra **só os eventos com
+  `available: true`**. Até lá, a tela mantém a lista própria (`OUTBOUND_EVENTS` em
+  `Settings.jsx`), com os mesmos 5 eventos da v1. (decisão do tutor na P1-L10)
+
 ## Corrigir no `HANDOFF.md`
 - `supabase_whatsapp_cache.sql` **foi** rodada (`whatsapp_instances.updated_at` existe, com
   gatilho). (P1-00)
