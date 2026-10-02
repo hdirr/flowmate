@@ -1,0 +1,2 @@
+{"error":"conversation_not_found","message":"Conversa não encontrada."}
+[404]
