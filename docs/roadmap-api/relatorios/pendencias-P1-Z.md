@@ -45,6 +45,11 @@ Cada item cita o relatório de origem.
   `available: true`**. Até lá, a tela mantém a lista própria (`OUTBOUND_EVENTS` em
   `Settings.jsx`), com os mesmos 5 eventos da v1. (decisão do tutor na P1-L10)
 
+- **P1-E5 (`POST /v1/leads/{id}/notes`):** testar ali a **nota com autor** (`user_id`
+  preenchido) no `GET /v1/leads/{id}/notes`: só a tela cria nota com autor e não havia nenhuma
+  na P1-L11. Uma nota escrita pela tela no contato `smoke-001` serve. (decisão do tutor na
+  P1-L11)
+
 ## Corrigir no `HANDOFF.md`
 - `supabase_whatsapp_cache.sql` **foi** rodada (`whatsapp_instances.updated_at` existe, com
   gatilho). (P1-00)

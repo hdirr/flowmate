@@ -2,7 +2,13 @@
 
 > Documento vivo pra retomar o projeto em sessão nova, com contexto zerado.
 > **Sem segredos aqui** — chaves ficam nas env vars do Vercel / painéis.
-> Última atualização: 2026-09-29.
+> Última atualização: 2026-10-02.
+>
+> ## Estado atual (roteiro da API `/v1` — `docs/roadmap-api/`)
+> - **Última etapa concluída:** P1-L11 `GET /v1/leads/{id}/notes` (`b1d0f83` / relatório `f3b05d1`). Todas as rotas de leitura da Parte 1 (L1–L11) estão no ar. Relatórios em `docs/roadmap-api/relatorios/`.
+> - **Bloco em andamento:** liberar um **tester externo do n8n** numa empresa própria dele: P1-E4 (`PATCH /v1/leads/{id}`), P1-E6 (`PATCH /v1/conversations/{id}`), P1-E3 (`POST /v1/contacts/{id}/tags`), kit do tester (`relatorios/KIT-TESTER-n8n.md`) e roteiro de teste de isolamento. P1-E1 e P1-E2 ficam para depois.
+> - **Bloqueadas:** P1-S3 e P1-W2 aguardam a troca da chave da Evolution (`EVOLUTION_API_KEY`) e a criação do `WEBHOOK_SECRET`; P1-E0 aguarda aprovação do tutor.
+> - **Pendências acumuladas:** `docs/roadmap-api/relatorios/pendencias-P1-Z.md`.
 >
 > **WhatsApp — mensagens e mídia OK (confirmado pelo usuário em 2026-09-28):** `supabase_whatsapp_media.sql` foi rodada, o buraco de histórico foi recuperado e mensagens/mídia novas chegam em tempo real. Ver PENDÊNCIAS A0 pro que ainda falta (Railway, limpeza Atimos).
 >
@@ -157,6 +163,7 @@ A0. **WhatsApp pós-incidente:** (a)–(d) feitos e confirmados (webhook v2, mig
 - **Regenerar** chaves que passaram pelo chat: a API key de integração da empresa (Configurações → Integrações → ↻) e a chave sandbox do Asaas (legado).
 
 ## GOTCHAS (erros que já aconteceram — evitar de novo)
+- **Evidências antes/depois: o smoke altera o `updated_at` do contato e do lead `smoke-001`** (o item 1.4, `POST /v1/leads` idempotente, faz `update` a cada execução). Nas evidências versionadas, troque **apenas** o `updated_at` do contato `smoke-001` e do lead dele por `<alterado-pelo-smoke>`; nenhum outro `updated_at` é mascarado. (Regra de 2026-10-02, decidida na P1-L11.)
 - **Nunca versionar dados pessoais, nem com hash; evidências usam pseudônimos não derivados (ex.: contato-001), com o mapa só fora do repo.** (Regra de 2026-10-01: as evidências da P1-L7 foram publicadas com SHA-256 sem chave, reversível por força bruta; o repo foi tornado privado. Ver "Revisão de segurança (futura)" em `docs/roadmap-api/relatorios/pendencias-P1-Z.md`.)
 - **Tela branca = ReferenceError de runtime** por variável órfã após refactor. O `vite build` NÃO pega (não é erro de sintaxe). **Antes de mandar testar após refactor grande, rode `grep` procurando referências órfãs.**
 - **Repo privado quebra deploy** no Hobby (status "Blocked / user not found"). Manter público OU garantir que o autor do commit seja o email da conta Vercel.
