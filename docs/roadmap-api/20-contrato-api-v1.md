@@ -119,7 +119,13 @@ Filtros: `pipelineId`, `stageId`, `contactId`, `priority` (`true`/`false`), `cre
 Um **Lead**, com `contact` completo (objeto **Contato**). 404 `lead_not_found`.
 
 ### `GET /v1/leads/{id}/notes` (P1-L11)
-Lista paginada de **Nota** do contato do lead, `created_at` desc. (Notas são do contato.)
+Lista paginada de **Nota** do contato do lead, `created_at` desc (mais recentes primeiro; empate
+por `id` desc). (Notas são do contato: o mesmo contato com dois leads mostra as mesmas notas nos
+dois.)
+- Lead existente sem notas, ou sem contato → `200` com `items: []`.
+- Lead inexistente, de outra empresa ou id que não é UUID → `404 lead_not_found`.
+- `user_id` é o autor quando a nota foi escrita na tela; `null` quando veio de automação
+  (`auto: true`) ou da API. Só o id do usuário: para o nome, use `GET /v1/users`.
 
 ### `GET /v1/contacts` sem `phone`, `id` e `external_id` (P1-L4)
 Filtros: `name` (contém, sem diferenciar caixa), `tag` (tem a tag), `createdAfter`,

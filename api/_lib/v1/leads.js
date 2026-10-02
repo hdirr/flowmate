@@ -106,6 +106,51 @@ export async function getLead(req, res, { companyId, params }) {
   }
 }
 
+// GET /v1/leads/{id}/notes — notas do lead, paginadas, mais recentes primeiro.
+// As notas são do CONTATO (crm_notes.contact_id), então lista as do contato do lead.
+// Autor: só user_id (sem e-mail; nulo quando veio de automação ou da API).
+// Lead sem contato ou sem notas → items: [] com 200. Lead de outra empresa/inexistente → 404.
+export async function listLeadNotes(req, res, { companyId, params }) {
+  const notFound = () => fail(res, 404, 'lead_not_found', 'Lead não encontrado.');
+  if (!isUuid(params.id)) return notFound();
+  const page = readPaging(req.query);
+
+  const admin = adminClient();
+  try {
+    const { data: lead, error } = await admin.from('crm_leads')
+      .select('id, contact_id').eq('company_id', companyId).eq('id', params.id).maybeSingle();
+    if (error) throw error;
+    if (!lead) return notFound();
+    if (!lead.contact_id) return paged(res, page, [], 0);
+
+    const scope = (q) => q.eq('company_id', companyId).eq('contact_id', lead.contact_id);
+    const { data, count, error: nErr } = await scope(
+      admin.from('crm_notes').select('id, contact_id, text, auto, user_id, created_at', { count: 'exact' })
+    )
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(page.from, page.to);
+
+    if (isRangeBeyondEnd(nErr)) {
+      const { count: total, error: cErr } = await scope(
+        admin.from('crm_notes').select('id', { count: 'exact', head: true })
+      );
+      if (cErr) throw cErr;
+      return paged(res, page, [], total);
+    }
+    if (nErr) throw nErr;
+
+    // Objeto Nota do contrato
+    const items = (data || []).map(n => ({
+      id: n.id, contact_id: n.contact_id, text: n.text, auto: n.auto, user_id: n.user_id, created_at: n.created_at,
+    }));
+    return paged(res, page, items, count);
+  } catch (e) {
+    console.error('[v1] lead notes falhou:', e?.message || e);
+    return fail(res, 500, 'internal_error', 'Erro ao consultar as notas.');
+  }
+}
+
 // GET /v1/leads — lista paginada de Lead. Filtros: pipelineId, stageId, contactId, priority,
 // createdAfter/Before, updatedAfter/Before. Ordem created_at desc, id desc (estável).
 export async function listLeads(req, res, { companyId }) {

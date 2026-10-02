@@ -7,7 +7,7 @@
 // Rotas que não casam aqui caem no switch antigo do [...path].js, sem mudança.
 
 import { listPipelines } from './pipelines.js';
-import { listLeads, getLead } from './leads.js';
+import { listLeads, getLead, listLeadNotes } from './leads.js';
 import { listContacts } from './contacts.js';
 import { listUsers } from './users.js';
 import { getMessage } from './messages.js';
@@ -19,6 +19,7 @@ export const ROUTES = [
   { method: 'GET', pattern: 'pipelines', handler: listPipelines }, // P1-L1
   { method: 'GET', pattern: 'leads', handler: listLeads },         // P1-L2 (POST leads segue no switch antigo)
   { method: 'GET', pattern: 'leads/:id', handler: getLead },       // P1-L3
+  { method: 'GET', pattern: 'leads/:id/notes', handler: listLeadNotes }, // P1-L11 (POST é a P1-E5)
   { method: 'GET', pattern: 'users', handler: listUsers },         // P1-L5
   { method: 'GET', pattern: 'conversations', handler: listConversations }, // P1-L6
   { method: 'GET', pattern: 'conversations/:id', handler: getConversation }, // P1-L7
