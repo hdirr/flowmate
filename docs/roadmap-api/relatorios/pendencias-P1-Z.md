@@ -102,7 +102,9 @@ Cada item cita o relatório de origem.
 - 2 notas de teste ("Nota de teste P1-L11 n1/n2") no contato `smoke-001`. (P1-L11)
 - 2 notas de teste ("Nota de teste P1-E5 sem autor/com autor") no contato `smoke-001`. (P1-E5)
 - 2 notas de teste ("Nota de teste E5-fix sem autor/com autor") no contato `smoke-001`. (P1-E5, correção)
-- Contatos "Teste S4" e "Teste S4b". (P1-S4)
+- Contatos "Teste S4" e "Teste S4b". (P1-S4) O "Teste S4" não existe mais (verificado em
+  2026-10-02).
+- Contato "Teste E2" (`external_id` `teste-e2-001`). (P1-E2)
 - Usuário de teste "hhhh" (vendedor, inativo) da empresa FlowMate; confirmado como teste pelo
   Agadir. (P1-L5/L6)
 - Link do webhook.site em Configurações → Integrações (`5e03e930…`): **público e expira em 7
