@@ -1,0 +1,2 @@
+{"error":"method_not_allowed","message":"Método POST não aceito nesta rota. Use: GET."}
+[405]
