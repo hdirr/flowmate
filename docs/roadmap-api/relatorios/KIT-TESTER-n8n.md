@@ -59,7 +59,7 @@ Authorization: Bearer SUA_CHAVE
 | `GET /pipelines` | Funis com etapas, na ordem da tela | — |
 | `GET /leads` | Leads paginados, mais novos primeiro | `pipelineId`, `stageId`, `contactId`, `priority`, `createdAfter/Before`, `updatedAfter/Before` |
 | `GET /leads/{id}` | Um lead com o contato completo (`fields` por nome) | `value` hoje vem 0 (o app ainda não edita) |
-| `GET /leads/{id}/notes` | Notas do contato do lead, mais novas primeiro | `user_id` nulo = nota de automação ou da API |
+| `GET /leads/{id}/notes` | Notas do contato do lead, mais novas primeiro | `user_id` nulo = nota de automação ou da API sem autor |
 | `GET /contacts` | Contatos paginados | `name` (contém, sem caixa), `tag` (**exata, diferencia maiúsculas**), datas |
 | `GET /contacts?phone=` \| `?id=` \| `?external_id=` | Um contato + lead + estado da conversa | rota antiga, resposta própria |
 | `GET /users` | Usuários (`id, name, email, role, active`) | — |
@@ -85,7 +85,7 @@ Authorization: Bearer SUA_CHAVE
 | `PATCH /contacts` | `{ "phone": "…", "name": "…", "tags": […], "fields": { "Nome do campo": "valor" } }` | campos por **id ou nome**; inexistente volta em `unknown_fields` |
 | `POST /notes` | `{ "phone": "…", "text": "…" }` | nota interna no contato |
 | `PATCH /leads/{id}` | `{ "stage_name": "Negociação", "pipeline_name": "Funil principal", "priority": true, "value": 1500 }` | move de etapa e funil; `metadata` ainda não |
-| `POST /leads/{id}/notes` | `{ "text": "Cliente pediu proposta", "user_id": "<USER_ID>" }` | nota no contato do lead; `user_id` (autor) opcional, de `GET /users`; 201 com a nota |
+| `POST /leads/{id}/notes` | `{ "text": "Cliente pediu proposta", "user_id": "<USER_ID>" }` | nota no contato do lead; `user_id` (autor) opcional, de `GET /users`; com autor sai `auto: false`, sem autor `auto: true`; 201 com a nota |
 | `POST /contacts/{id}/tags` | `{ "tags": ["vip"], "operation": "InsertIfNotExists" }` | também `DeleteIfExists` e `ReplaceAll`. **Tags diferenciam maiúsculas: `VIP` e `vip` são tags diferentes** |
 | `PATCH /conversations/{id}` | `{ "state": "human" }` ou `{ "state": "automation" }` | grupo → 422; gera `conversation.state_changed` (`changed_by: "api"`) |
 | `POST /conversations/{id}/messages` | `{ "content": "Olá!" }` (+ `media` opcional) | envia pela conversa (serve para grupo); **409** se a conversa estiver em `human`; `@lid` → 422 `unsupported_jid` |

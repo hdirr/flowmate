@@ -214,7 +214,8 @@ export async function updateLead(req, res, ctx) {
 
 // POST /v1/leads/{id}/notes — cria nota no CONTATO do lead (as notas são do contato).
 // { text, user_id? }: text obrigatório (até 8000); user_id opcional = autor, precisa ser usuário
-// da mesma empresa. auto: true (veio da API, como o POST /v1/notes antigo). 201 com a Nota.
+// da mesma empresa. auto: false quando há autor (user_id); sem autor, auto: true (como o
+// POST /v1/notes antigo). 201 com a Nota.
 // Evento note.created. Lead sem contato → 422 lead_without_contact.
 export async function createLeadNote(req, res, { companyId, params }) {
   const notFound = () => fail(res, 404, 'lead_not_found', 'Lead não encontrado.');
@@ -243,7 +244,7 @@ export async function createLeadNote(req, res, { companyId, params }) {
     }
 
     const { data: n, error: iErr } = await admin.from('crm_notes')
-      .insert({ company_id: companyId, contact_id: lead.contact_id, text: body.text, auto: true, user_id: body.user_id || null })
+      .insert({ company_id: companyId, contact_id: lead.contact_id, text: body.text, auto: !body.user_id, user_id: body.user_id || null })
       .select('id, contact_id, text, auto, user_id, created_at').single();
     if (iErr) throw iErr;
 

@@ -124,8 +124,9 @@ por `id` desc). (Notas são do contato: o mesmo contato com dois leads mostra as
 dois.)
 - Lead existente sem notas, ou sem contato → `200` com `items: []`.
 - Lead inexistente, de outra empresa ou id que não é UUID → `404 lead_not_found`.
-- `user_id` é o autor quando a nota foi escrita na tela; `null` quando veio de automação
-  (`auto: true`) ou da API. Só o id do usuário: para o nome, use `GET /v1/users`.
+- `user_id` é o autor quando a nota foi escrita na tela ou pela API com `user_id` (`auto: false`);
+  `null` quando veio de automação ou da API sem autor (`auto: true`). Só o id do usuário: para o
+  nome, use `GET /v1/users`.
 
 ### `GET /v1/contacts` sem `phone`, `id` e `external_id` (P1-L4)
 Filtros: `name` (contém, sem diferenciar caixa), `tag` (tem a tag), `createdAfter`,
@@ -271,7 +272,8 @@ Resposta `200 { ok, contact_id, tags, added, removed }`. Evento `contact.tags_up
 ```json
 { "text": "Cliente pediu proposta por e-mail" }
 ```
-Grava em `crm_notes` no contato do lead, `auto: true`. `201` com a **Nota**. Evento `note.created`.
+Grava em `crm_notes` no contato do lead. `201` com a **Nota**. Evento `note.created`.
+`auto: false` quando vem com `user_id` (nota atribuída a um usuário); sem `user_id`, `auto: true`.
 - **Implementado na P1-E5:**
   - **`text`:** obrigatório, até 8000 caracteres → `400 missing_text` / `text_too_long`.
   - **`user_id` opcional:** o autor; precisa ser um usuário da empresa (`GET /v1/users`), senão
