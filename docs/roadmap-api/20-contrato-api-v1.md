@@ -217,6 +217,31 @@ Uma **Mensagem**, buscada pelo `message_id` do WhatsApp (o que o `POST /v1/messa
 - **Não existe** → cria. `name` obrigatório nesse caso (`400 missing_name`). Resposta
   `201 { ok, created: true, contact_id, unknown_fields }` + evento `contact.created`.
 - **Não cria lead** (para isso já existe `POST /v1/leads`).
+- **Implementado na P1-E2:**
+  - **Procura:** a mesma do handler antigo. Com `contact_id`, só por ele; senão, com
+    `external_id`, só por ele (o telefone **não** é usado); senão, pelo telefone (últimos 8
+    dígitos). `contact_id` que não existe (ou não é UUID) → `404 contact_not_found`, como antes.
+  - **Existe:** resposta do handler antigo + `created: false` (`200 { ok, contact_id, moved,
+    unknown_fields, created }`). Erros do handler antigo saem como sempre (ex.: `400
+    stage_not_found`, que pode vir depois de ele já ter gravado nome/e-mail/tags/campos).
+    `metadata` faz merge (`null` remove a chave), só quando o handler antigo respondeu 200.
+    `contact.updated` `{ contact_id, changes, source: "api" }` quando algo mudou de fato no banco
+    (`changes` entre `name`, `email`, `tags`, `fields`, `metadata`); o `PATCH /v1/contacts` antigo
+    **não** gera esse evento.
+  - **Cria:** `name` (texto não vazio) → senão `400 missing_name`. Opcionais: `phone` (gravado
+    como veio), `email`, `external_id`, `tags` (até 50 textos de até 100 caracteres, sem
+    duplicatas → senão `400 invalid_tags`), `fields` (por id ou nome; desconhecidos voltam em
+    `unknown_fields`), `metadata`. `stage_id`/`stage_name`/`pipeline_name` → `400 invalid_field`
+    (contato novo não recebe etapa; use `POST /v1/leads`). `created_by` nulo.
+    `contact.created` `{ contact_id, name, phone, email, source: "api" }`.
+  - **Outros erros:** `400 invalid_body` (corpo não é objeto), `400 invalid_field` (`options`,
+    `options.upsert` não booleano, `metadata` fora de objeto), `400 metadata_too_large`,
+    `409 contact_exists` (com `contact_id`). Se a empresa já tiver **mais de um** contato com o
+    mesmo `external_id` (o banco não impede), a rota não cria outro: `409 contact_exists` com
+    `contact_id: null` (use `contact_id`).
+  - **Mudança registrada:** `POST` sem `contact_id`, `external_id` e `phone`, só com `name`, antes
+    respondia 404; agora cria.
+  - **Automação "contato criado" da tela não dispara pela API** (limitação conhecida).
 
 ### `POST /v1/contacts/{id}/tags` (P1-E3)
 ```json

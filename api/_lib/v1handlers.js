@@ -13,7 +13,7 @@ function samePhone(a, b) {
 }
 
 // Acha o contato por id, external_id ou telefone (casando pelos últimos 8 dígitos).
-async function resolveContact(companyId, { contact_id, external_id, phone }) {
+export async function resolveContact(companyId, { contact_id, external_id, phone }) {
   const admin = adminClient();
 
   if (contact_id) {
@@ -36,7 +36,7 @@ async function resolveContact(companyId, { contact_id, external_id, phone }) {
 
 // Os valores ficam em crm_contacts.fields, chaveados pelo UUID do campo.
 // Um agente não sabe UUID — então aceitamos id OU nome (case-insensitive).
-async function resolveFieldKeys(companyId, incoming) {
+export async function resolveFieldKeys(companyId, incoming) {
   const admin = adminClient();
   // A coluna no banco é field_type (não type) — ver docs/roadmap-api/esquema-atual.md.
   const { data: defs, error } = await admin.from('custom_fields')

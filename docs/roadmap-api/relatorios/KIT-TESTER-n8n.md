@@ -83,6 +83,7 @@ Authorization: Bearer SUA_CHAVE
 | `POST /messages` | `{ "to": "5531999998888", "content": "Olá!" }` (+ `media` opcional) | **409 `conversation_paused`** se a conversa estiver em `human`: é esperado, não reenvie |
 | `POST /leads` | `{ "external_id": "seu-id", "name": "…", "phone": "…", "fields": {…} }` | idempotente por `external_id` (`created: false` = já existia, foi atualizado) |
 | `PATCH /contacts` | `{ "phone": "…", "name": "…", "tags": […], "fields": { "Nome do campo": "valor" } }` | campos por **id ou nome**; inexistente volta em `unknown_fields` |
+| `POST /contacts` | `{ "name": "…", "phone": "…", "external_id": "seu-id", "tags": […], "fields": {…}, "metadata": {…} }` | cria contato **sem lead** (201, `created: true`); se já existe (por `contact_id`, senão `external_id`, senão telefone) atualiza como o `PATCH /contacts` e devolve `created: false`; `"options": { "upsert": false }` → 409 `contact_exists` |
 | `POST /notes` | `{ "phone": "…", "text": "…" }` | nota interna no contato |
 | `PATCH /leads/{id}` | `{ "stage_name": "Negociação", "pipeline_name": "Funil principal", "priority": true, "value": 1500 }` | move de etapa e funil; `metadata` faz merge (`null` remove a chave; até 50 chaves / 16 KB) |
 | `POST /leads/{id}/notes` | `{ "text": "Cliente pediu proposta", "user_id": "<USER_ID>" }` | nota no contato do lead; `user_id` (autor) opcional, de `GET /users`; com autor sai `auto: false`, sem autor `auto: true`; 201 com a nota |
@@ -97,10 +98,8 @@ curl -X PATCH "https://flowmate-ashy.vercel.app/v1/leads/<LEAD_ID>" \
   -d '{ "stage_name": "Negociação" }'
 ```
 
-**Ainda não existe:** criar contato sem lead (`POST /contacts` novo).
-
 **`metadata`:** objeto livre seu (id no seu sistema, origem…). Sai em contatos e leads das rotas
-novas (`{}` quando vazio); grava pelo `PATCH /leads/{id}`.
+novas (`{}` quando vazio); grava pelo `PATCH /leads/{id}` e pelo `POST /contacts`.
 
 **Ações feitas pela API não disparam as automações da tela** (os webhooks disparam).
 
@@ -115,7 +114,8 @@ depois. Marcar filtra. **Sempre roteie pelo campo `event`.**
 | --- | --- |
 | `message.received` | Cliente mandou mensagem, **só com a conversa em `automation`** |
 | `message.sent` | O FlowMate enviou uma mensagem (campo `sender`: `automation` \| `human`) |
-| `contact.created` | Contato criado na tela |
+| `contact.created` | Contato criado na tela ou pelo `POST /contacts` (`source: "api"`) |
+| `contact.updated` | Contato existente alterado pelo `POST /contacts`, com `changes` (o `PATCH /contacts` antigo não gera) |
 | `lead.created` | Lead criado (tela ou `POST /leads`) |
 | `lead.moved` | Lead mudou de etapa ou de funil |
 | `lead.updated` | Lead alterado pela API (`PATCH /leads/{id}`), com `changes` |
@@ -123,7 +123,7 @@ depois. Marcar filtra. **Sempre roteie pelo campo `event`.**
 | `note.created` | Nota criada pela API (`POST /leads/{id}/notes`) |
 | `conversation.state_changed` | Conversa mudou entre `automation` e `human`; `changed_by`: `user` (tela), `phone` (respondeu pelo celular) ou `api`; `previous_state` e `user_id` |
 
-**Ainda não saem** (`available: false`): `contact.updated`, `whatsapp.connection`. Assinar não
+**Ainda não sai** (`available: false`): `whatsapp.connection`. Assinar não
 dá erro, mas nada chega. A tela de Integrações mostra só os eventos que já saem.
 
 **Envelope** de todo POST:

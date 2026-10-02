@@ -8,7 +8,7 @@
 
 import { listPipelines } from './pipelines.js';
 import { listLeads, getLead, listLeadNotes, updateLead, createLeadNote } from './leads.js';
-import { listContacts, updateContactTags } from './contacts.js';
+import { listContacts, updateContactTags, createContact } from './contacts.js';
 import { listUsers } from './users.js';
 import { getMessage } from './messages.js';
 import { listWebhookEvents } from './webhookEvents.js';
@@ -31,6 +31,7 @@ export const ROUTES = [
   { method: 'GET', pattern: 'messages/:id', handler: getMessage }, // P1-L9 (GET/POST /v1/messages antigos seguem no switch)
   { method: 'GET', pattern: 'webhook-events', handler: listWebhookEvents }, // P1-L10
   { method: 'GET', pattern: 'contacts', handler: listContacts },
+  { method: 'POST', pattern: 'contacts', handler: createContact }, // P1-E2 (PATCH contacts segue no switch antigo)
   { method: 'POST', pattern: 'contacts/:id/tags', handler: updateContactTags }, // P1-E3   // P1-L4 (com phone/id/external_id delega à rota antiga; PATCH/POST seguem no switch)
 ];
 
