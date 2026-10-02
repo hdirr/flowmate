@@ -267,6 +267,19 @@ Grava em `crm_notes` no contato do lead, `auto: true`. `201` com a **Nota**. Eve
 ```
 `state`: `automation` ou `human` (`400 invalid_state`). Conversa de grupo → `422 unsupported_for_group`.
 Resposta: a **Conversa**. Evento `conversation.state_changed` (P1-W1) com `changed_by: "api"`.
+- **Implementado na P1-E6:**
+  - **Resposta:** a Conversa no formato do `GET /v1/conversations/{id}`, sem `last_message`.
+  - **Mesmo estado que já está** → 200, sem mudança (`state_since` não muda).
+  - **Pela API, `state_by` fica `null`**, igual a quando o dono responde pelo celular. Ainda não
+    há como distinguir; o `changed_by` do evento resolve isso na P1-W1.
+  - **Evento:** ainda **nenhum**; `conversation.state_changed` só passa a sair na P1-W1 (no
+    catálogo, `available: false`).
+  - **Erros:**
+    - 400 `invalid_state` / `invalid_body`;
+    - 404 `conversation_not_found` (inexistente, de outra empresa, id que não é UUID);
+    - 422 `unsupported_for_group`.
+  - **Efeito:** em `human`, o `message.received` deixa de ir para o n8n e o `POST /v1/messages`
+    responde 409 `conversation_paused`; volta ao passar para `automation`.
 
 ### `POST /v1/conversations/{id}/messages` (P1-E7)
 ```json

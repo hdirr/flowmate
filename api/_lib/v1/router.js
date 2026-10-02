@@ -12,7 +12,7 @@ import { listContacts } from './contacts.js';
 import { listUsers } from './users.js';
 import { getMessage } from './messages.js';
 import { listWebhookEvents } from './webhookEvents.js';
-import { listConversations, getConversation, listConversationMessages } from './conversations.js';
+import { listConversations, getConversation, listConversationMessages, updateConversation } from './conversations.js';
 
 export const ROUTES = [
   // As rotas entram uma por tarefa (P1-L*, P1-E*).
@@ -24,6 +24,7 @@ export const ROUTES = [
   { method: 'GET', pattern: 'users', handler: listUsers },         // P1-L5
   { method: 'GET', pattern: 'conversations', handler: listConversations }, // P1-L6
   { method: 'GET', pattern: 'conversations/:id', handler: getConversation }, // P1-L7
+  { method: 'PATCH', pattern: 'conversations/:id', handler: updateConversation }, // P1-E6
   { method: 'GET', pattern: 'conversations/:id/messages', handler: listConversationMessages }, // P1-L8
   { method: 'GET', pattern: 'messages/:id', handler: getMessage }, // P1-L9 (GET/POST /v1/messages antigos seguem no switch)
   { method: 'GET', pattern: 'webhook-events', handler: listWebhookEvents }, // P1-L10

@@ -1,6 +1,7 @@
 import { adminClient } from '../db.js';
 import { V1Error, fail, readPaging, paged, readDate, isUuid, queryParam, isRangeBeyondEnd } from './http.js';
 import { MESSAGE_COLS, toMessage } from './messages.js';
+import { setConversationState } from '../conversations.js';
 
 // Tipo e telefone a partir do JID. Grupo = @g.us. @lid (identificador novo do WhatsApp) não é
 // telefone. phone só sai para @s.whatsapp.net; o resto (grupo, @lid, formato desconhecido) → null.
@@ -118,6 +119,44 @@ export async function listConversationMessages(req, res, { companyId, params }) 
   } catch (e) {
     console.error('[v1] conversation messages falhou:', e?.message || e);
     return fail(res, 500, 'internal_error', 'Erro ao consultar as mensagens.');
+  }
+}
+
+// PATCH /v1/conversations/{id} — alterna automation ↔ human. Reaproveita setConversationState
+// (o mesmo do botão da tela). Grupo não pausa → 422. Mesmo estado → 200 sem mudança.
+// Evento conversation.state_changed só na P1-W1 (no catálogo está available: false).
+// Resposta: a Conversa (mesmo formato do GET, sem last_message).
+export async function updateConversation(req, res, { companyId, params }) {
+  const notFound = () => fail(res, 404, 'conversation_not_found', 'Conversa não encontrada.');
+  if (!isUuid(params.id)) return notFound();
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
+  if (!body) throw new V1Error(400, 'invalid_body', 'Envie um objeto JSON.');
+  const state = body.state;
+  if (state !== 'automation' && state !== 'human') {
+    throw new V1Error(400, 'invalid_state', '"state" aceita só automation ou human.');
+  }
+
+  const admin = adminClient();
+  try {
+    const load = () => admin.from('conversations').select(CONV_COLS)
+      .eq('company_id', companyId).eq('id', params.id).maybeSingle();
+    let { data: c, error } = await load();
+    if (error) throw error;
+    if (!c) return notFound();
+    if (jidInfo(c.remote_jid).type === 'group') {
+      return fail(res, 422, 'unsupported_for_group', 'Grupos não alternam entre automação e humano.');
+    }
+    if (c.state !== state) {
+      // actorUserId nulo: veio da API, não de um usuário da tela
+      await setConversationState(c.id, state, null);
+      ({ data: c, error } = await load());
+      if (error) throw error;
+    }
+    const contacts = await loadContacts(admin, companyId, [c]);
+    return res.status(200).json(toConversation(c, contacts));
+  } catch (e) {
+    console.error('[v1] update conversation falhou:', e?.message || e);
+    return fail(res, 500, 'internal_error', 'Erro ao alterar a conversa.');
   }
 }
 
