@@ -1,0 +1,2 @@
+{"id":"76bc97f5-20e0-4929-97ce-fb810efc168b","message_id":"3EB0F3F10454101BBC994D","conversation_id":"9486f963-bba1-41a6-87d7-a3d5469ab482","remote_jid":"jid-002","from_me":true,"sender":null,"type":"text","content":"texto-012","media_url":null,"file_name":null,"timestamp":1790803210,"status":"sent"}
+[200]
