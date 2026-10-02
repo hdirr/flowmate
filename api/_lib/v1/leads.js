@@ -1,5 +1,6 @@
 import { adminClient } from '../db.js';
 import { fieldsByName } from '../v1handlers.js';
+import { dispatchWebhook } from '../webhooks.js';
 import { V1Error, fail, readPaging, paged, readDate, isUuid, queryParam, isRangeBeyondEnd } from './http.js';
 
 const LEAD_COLS = 'id, contact_id, pipeline_id, stage_id, value, priority, created_at, updated_at, '
@@ -104,6 +105,111 @@ export async function getLead(req, res, { companyId, params }) {
     console.error('[v1] lead falhou:', e?.message || e);
     return fail(res, 500, 'internal_error', 'Erro ao consultar o lead.');
   }
+}
+
+// ─── Escrita ─────────────────────────────────────────────────
+
+// Erro de corpo das rotas de escrita: 400 com o nome do campo na mensagem.
+const badField = (name, msg) => new V1Error(400, 'invalid_field', `"${name}": ${msg}`);
+
+// ilike exato (sem curinga do usuário): escapa \ % _ e o * do PostgREST.
+const likeExact = s => String(s).replace(/[\\%_*]/g, ch => '\\' + ch);
+
+// Etapa de destino por stage_id ou stage_name (+ pipeline_name), sempre dentro dos funis da
+// empresa (pelo pipeline_id, como o GET /v1/leads — não por crm_stages.company_id).
+// Nome repetido em vários funis sem pipeline_name: prefere o funil atual do lead.
+async function resolveTargetStage(admin, companyId, body, currentPipelineId) {
+  let pipesQ = admin.from('crm_pipelines').select('id').eq('company_id', companyId);
+  if (body.pipeline_name !== undefined) {
+    if (typeof body.pipeline_name !== 'string' || !body.pipeline_name.trim()) throw badField('pipeline_name', 'texto obrigatório');
+    pipesQ = pipesQ.ilike('name', likeExact(body.pipeline_name.trim()));
+  }
+  const { data: pipes, error } = await pipesQ;
+  if (error) throw error;
+  const pipeIds = (pipes || []).map(p => p.id);
+  if (!pipeIds.length) return null;
+
+  let q = admin.from('crm_stages').select('id, pipeline_id').in('pipeline_id', pipeIds);
+  if (body.stage_id !== undefined) {
+    if (!isUuid(String(body.stage_id))) return null;
+    q = q.eq('id', body.stage_id);
+  } else {
+    if (typeof body.stage_name !== 'string' || !body.stage_name.trim()) throw badField('stage_name', 'texto obrigatório');
+    q = q.ilike('name', likeExact(body.stage_name.trim()));
+  }
+  const { data: stages, error: sErr } = await q.order('position', { ascending: true });
+  if (sErr) throw sErr;
+  if (!stages?.length) return null;
+  return stages.find(s => s.pipeline_id === currentPipelineId) || stages[0];
+}
+
+// PATCH /v1/leads/{id} — move de etapa/funil, prioridade e valor. Campos personalizados são do
+// contato (PATCH /v1/contacts); metadata só depois da P1-E1. Resposta: o Lead (como o GET).
+// Eventos: lead.moved (se a etapa mudou, payload igual ao de hoje) e lead.updated (se algo mudou).
+export async function updateLead(req, res, ctx) {
+  const { companyId, params } = ctx;
+  const notFound = () => fail(res, 404, 'lead_not_found', 'Lead não encontrado.');
+  if (!isUuid(params.id)) return notFound();
+
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
+  if (!body) throw new V1Error(400, 'invalid_body', 'Envie um objeto JSON.');
+  if (body.metadata !== undefined) throw badField('metadata', 'ainda não disponível (depende da P1-E1)');
+  const wantsStage = body.stage_id !== undefined || body.stage_name !== undefined;
+  if (!wantsStage && body.pipeline_name !== undefined) throw badField('pipeline_name', 'use junto com stage_name');
+  if (body.priority !== undefined && typeof body.priority !== 'boolean') throw badField('priority', 'use true ou false');
+  if (body.value !== undefined && body.value !== null
+      && !(typeof body.value === 'number' && Number.isFinite(body.value) && body.value >= 0 && body.value < 1e12)) {
+    throw badField('value', 'número maior ou igual a 0, ou null');
+  }
+  if (!wantsStage && body.priority === undefined && body.value === undefined) {
+    throw new V1Error(400, 'empty_update', 'Nada para alterar. Campos aceitos: stage_id, stage_name, pipeline_name, priority, value.');
+  }
+
+  const admin = adminClient();
+  try {
+    const { data: lead, error } = await admin.from('crm_leads')
+      .select('id, contact_id, pipeline_id, stage_id, priority, value')
+      .eq('company_id', companyId).eq('id', params.id).maybeSingle();
+    if (error) throw error;
+    if (!lead) return notFound();
+
+    const patch = {};
+    const changes = [];
+    if (wantsStage) {
+      const stage = await resolveTargetStage(admin, companyId, body, lead.pipeline_id);
+      if (!stage) return fail(res, 400, 'stage_not_found', 'Etapa não encontrada nos funis da empresa.');
+      if (stage.id !== lead.stage_id) { patch.stage_id = stage.id; changes.push('stage_id'); }
+      if (stage.pipeline_id !== lead.pipeline_id) { patch.pipeline_id = stage.pipeline_id; changes.push('pipeline_id'); }
+    }
+    if (body.priority !== undefined && body.priority !== lead.priority) { patch.priority = body.priority; changes.push('priority'); }
+    if (body.value !== undefined) {
+      const cur = lead.value === null || lead.value === undefined ? null : Number(lead.value);
+      if (body.value !== cur) { patch.value = body.value; changes.push('value'); }
+    }
+
+    if (changes.length) {
+      const { error: uErr } = await admin.from('crm_leads').update(patch)
+        .eq('company_id', companyId).eq('id', lead.id);
+      if (uErr) throw uErr;
+      const after = { ...lead, ...patch };
+      // Webhook do cliente nunca derruba a ação principal.
+      try {
+        if (patch.stage_id || patch.pipeline_id) {
+          await dispatchWebhook(companyId, 'lead.moved', {
+            contact_id: lead.contact_id, lead_id: lead.id, stage_id: after.stage_id, pipeline_id: after.pipeline_id, source: 'api',
+          });
+        }
+        await dispatchWebhook(companyId, 'lead.updated', {
+          lead_id: lead.id, contact_id: lead.contact_id, stage_id: after.stage_id, pipeline_id: after.pipeline_id,
+          priority: after.priority, value: after.value === null ? null : Number(after.value), changes, source: 'api',
+        });
+      } catch (e) { console.error('[v1] webhook de lead falhou:', e?.message || e); }
+    }
+  } catch (e) {
+    console.error('[v1] update lead falhou:', e?.message || e);
+    return fail(res, 500, 'internal_error', 'Erro ao alterar o lead.');
+  }
+  return getLead(req, res, ctx);
 }
 
 // GET /v1/leads/{id}/notes — notas do lead, paginadas, mais recentes primeiro.

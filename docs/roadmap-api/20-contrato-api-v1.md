@@ -233,6 +233,27 @@ Resposta `200 { ok, contact_id, tags, added, removed }`. Evento `contact.tags_up
 - Resposta: o **Lead** atualizado. Eventos: `lead.moved` (se a etapa mudou, payload igual ao de
   hoje) e `lead.updated` (sempre que algo mudou, com `changes: ["stage_id","priority",...]`).
 - Campos personalizados **não** entram aqui: eles são do contato (`PATCH /v1/contacts`).
+- **Implementado na P1-E4** (sem `metadata`, que depende da P1-E1):
+  - **Campos aceitos:** `stage_id` | `stage_name` (+ `pipeline_name` opcional), `priority`
+    (`true`/`false`) e `value` (número ≥ 0, ou `null`). Campos desconhecidos são ignorados.
+  - **Etapa:** procurada só nos funis da empresa. Nome sem diferenciar caixa e sem curinga. Se o
+    nome existir em vários funis e não vier `pipeline_name`, vale o funil atual do lead.
+  - **Erros (400):**
+    - `metadata` → `invalid_field` (ainda não disponível);
+    - `priority` ou `value` inválidos → `invalid_field`;
+    - `pipeline_name` sem `stage_name` → `invalid_field`;
+    - nenhum campo aceito → `empty_update`;
+    - etapa não achada → `stage_not_found`;
+    - corpo que não é objeto → `invalid_body`.
+  - **404 `lead_not_found`:** lead inexistente, de outra empresa ou id que não é UUID.
+  - **Resposta:** o **Lead** como no `GET /v1/leads/{id}` (contato completo).
+  - **Sem mudança efetiva:** 200, sem evento.
+  - **Eventos:**
+    - `lead.moved` `{ contact_id, lead_id, stage_id, pipeline_id, source: "api" }`, quando a
+      etapa muda;
+    - `lead.updated` `{ lead_id, contact_id, stage_id, pipeline_id, priority, value, changes,
+      source: "api" }`, quando algo muda.
+  - **Automações da tela não disparam** para alterações feitas pela API (limitação conhecida).
 
 ### `POST /v1/leads/{id}/notes` (P1-E5)
 ```json
