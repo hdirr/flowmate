@@ -96,6 +96,7 @@ Cada item cita o relatório de origem.
 - Contato "Smoke Test FlowMate" (`external_id` `smoke-001`), com lead. (P1-00b)
 - Tag `teste-api` no contato `smoke-001`. (P1-L4)
 - 2 notas de teste ("Nota de teste P1-L11 n1/n2") no contato `smoke-001`. (P1-L11)
+- 2 notas de teste ("Nota de teste P1-E5 sem autor/com autor") no contato `smoke-001`. (P1-E5)
 - Contatos "Teste S4" e "Teste S4b". (P1-S4)
 - Usuário de teste "hhhh" (vendedor, inativo) da empresa FlowMate; confirmado como teste pelo
   Agadir. (P1-L5/L6)
