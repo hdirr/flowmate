@@ -55,12 +55,19 @@ Cada item cita o relatório de origem.
 - **P1-E0 (junto):** `toWhatsAppNumber` acrescenta `55` a qualquer número de 10–11 dígitos;
   número estrangeiro sem código do país iria para um número brasileiro errado no
   `POST /v1/messages` antigo e no `sendMessage`. A E7 se protege (422); a rota antiga não.
-  (P1-E7) **Decisão do Agadir (2026-10-02): entra no escopo da P1-E0.**
-- **P1-E7, envio real:** aguardando o Agadir confirmar a conversa de teste (número dele) para 1
-  envio real + o teste do 409. (P1-E7)
-- **409 `conversation_paused`, teste pendente:** o tutor pediu o teste só no contato `smoke-001`,
-  mas ele **não tem telefone nem conversa** (verificado em 2026-10-02). Não testado; aguarda o
-  Agadir indicar uma conversa de teste segura (número de teste dele).
+  (P1-E7) **Feito na P1-E0 (`4ea0521`).**
+- **P1-E7, envio real:** aguardando o Agadir indicar o número (decisão de 2026-10-02: "ainda
+  não"). (P1-E7)
+- **409 `conversation_paused`:** **testado** em 2026-10-02 na conversa "Teste 409" (já em
+  `human`), por `POST /v1/messages` e `POST /v1/conversations/{id}/messages`: 409 nos dois,
+  nada enviado, estado intacto. (P1-E0)
+- **P1-E0, documentar na P1-Z:** regra de telefone (`+` para estrangeiro; ambíguo 11 dígitos
+  com 9 na 3ª posição = BR; `0` de longa distância não é removido) e a conversa gêmea. Já estão
+  no contrato e no kit. (P1-E0)
+- **P1-E0, a decidir:** (1) retomar automação quando a gêmea está em `human`; (2)
+  `getOrCreateConversation` pode sobrescrever `human` para `automation` se a leitura falhar
+  (upsert com `onConflict`): proposta de etapa própria; (3) fusão das conversas duplicadas na
+  Parte 2. (P1-E0)
 - **P1-E5:** nota com autor coberta na E5; **nota com `user_id` sai `auto: false`** (decisão do
   Agadir, `dbb23bc`).
 
