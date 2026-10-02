@@ -5,8 +5,8 @@
 > Última atualização: 2026-10-02.
 >
 > ## Estado atual (roteiro da API `/v1` — `docs/roadmap-api/`)
-> - **Última etapa concluída:** P1-L11 `GET /v1/leads/{id}/notes` (`b1d0f83` / relatório `f3b05d1`). Todas as rotas de leitura da Parte 1 (L1–L11) estão no ar. Relatórios em `docs/roadmap-api/relatorios/`.
-> - **Bloco em andamento:** liberar um **tester externo do n8n** numa empresa própria dele: P1-E4 (`PATCH /v1/leads/{id}`), P1-E6 (`PATCH /v1/conversations/{id}`), P1-E3 (`POST /v1/contacts/{id}/tags`), kit do tester (`relatorios/KIT-TESTER-n8n.md`) e roteiro de teste de isolamento. P1-E1 e P1-E2 ficam para depois.
+> - **Últimas etapas concluídas:** leitura L1–L11 (até P1-L11 `b1d0f83`/`f3b05d1`) e, no bloco do tester n8n, P1-E4 `PATCH /v1/leads/{id}` (`8d2e784`), P1-E6 `PATCH /v1/conversations/{id}` (`d6e519e`), P1-E3 `POST /v1/contacts/{id}/tags` (`efefd45`). Relatórios em `docs/roadmap-api/relatorios/`.
+> - **Bloco do tester n8n:** código pronto; kit em `relatorios/KIT-TESTER-n8n.md` e roteiro em `relatorios/ROTEIRO-ISOLAMENTO.md`. **Falta:** o Agadir criar a empresa do tester (passo a passo no runbook abaixo, seção "onboarding manual") e rodar o roteiro de isolamento com dado real. P1-E1, P1-E2, P1-E5, P1-E7, P1-W1, P1-W3 e P1-Z pendentes.
 > - **Bloqueadas:** P1-S3 e P1-W2 aguardam a troca da chave da Evolution (`EVOLUTION_API_KEY`) e a criação do `WEBHOOK_SECRET`; P1-E0 aguarda aprovação do tutor.
 > - **Pendências acumuladas:** `docs/roadmap-api/relatorios/pendencias-P1-Z.md`.
 >
