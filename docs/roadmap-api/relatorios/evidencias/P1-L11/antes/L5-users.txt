@@ -1,0 +1,2 @@
+{"pageNumber":1,"pageSize":20,"totalPages":1,"totalItems":2,"hasMorePages":false,"items":[{"id":"fd6d2e72-9972-4fb0-a916-727cf335b099","name":"pessoa-008","email":null,"role":"admin","active":true},{"id":"0ae79ea3-098d-4db9-bad1-6c80220eba63","name":"pessoa-009","email":"email-001","role":"seller","active":false}]}
+[200]
