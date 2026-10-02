@@ -10,6 +10,7 @@ import { listPipelines } from './pipelines.js';
 import { listLeads, getLead } from './leads.js';
 import { listContacts } from './contacts.js';
 import { listUsers } from './users.js';
+import { getMessage } from './messages.js';
 import { listConversations, getConversation, listConversationMessages } from './conversations.js';
 
 export const ROUTES = [
@@ -21,6 +22,7 @@ export const ROUTES = [
   { method: 'GET', pattern: 'conversations', handler: listConversations }, // P1-L6
   { method: 'GET', pattern: 'conversations/:id', handler: getConversation }, // P1-L7
   { method: 'GET', pattern: 'conversations/:id/messages', handler: listConversationMessages }, // P1-L8
+  { method: 'GET', pattern: 'messages/:id', handler: getMessage }, // P1-L9 (GET/POST /v1/messages antigos seguem no switch)
   { method: 'GET', pattern: 'contacts', handler: listContacts },   // P1-L4 (com phone/id/external_id delega à rota antiga; PATCH/POST seguem no switch)
 ];
 

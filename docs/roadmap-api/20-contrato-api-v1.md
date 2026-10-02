@@ -154,6 +154,18 @@ mais tempo devolve `items: []`. Conversa que não existe (ou id que não é UUID
 Uma **Mensagem**, buscada pelo `message_id` do WhatsApp (o que o `POST /v1/messages` devolve).
 404 `message_not_found`.
 
+- O `message_id` **não é UUID**: é alfanumérico (hoje, hex maiúsculo de 20, 22 ou 32
+  caracteres). A rota aceita letras, dígitos, `_` e `-`, até **128** caracteres. Fora desse
+  formato → 404 `message_not_found`, sem consulta.
+- A comparação é **exata e diferencia maiúsculas** (`ac89…` ≠ `AC89…`).
+- Só mensagens da empresa da chave; o id de outra empresa responde 404.
+- Só há **7 dias** de mensagens: um `message_id` antigo dá 404 mesmo que a mensagem exista na
+  Evolution.
+- Se houver mais de uma linha com o mesmo `message_id` na empresa, sai a mais recente
+  (`timestamp` desc, `id` desc).
+- `GET /v1/messages?phone=` (histórico por telefone) e `POST /v1/messages` são as rotas antigas e
+  não mudam.
+
 ### `GET /v1/webhook-events` (P1-L10)
 ```json
 { "items": [ { "event": "lead.moved", "description": "Lead mudou de etapa ou de funil" } ] }
