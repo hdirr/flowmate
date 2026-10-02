@@ -45,6 +45,16 @@ Cada item cita o relatório de origem.
   `available: true`**. Até lá, a tela mantém a lista própria (`OUTBOUND_EVENTS` em
   `Settings.jsx`), com os mesmos 5 eventos da v1. (decisão do tutor na P1-L10)
 
+- **P1-W1:** a pausa pela API grava `state_by` nulo (igual à do celular). Decisão: manter a coluna
+  e distinguir pelo parâmetro `source` de `setConversationState`, que vira `changed_by`
+  (`api`/`phone`/`user`) no evento `conversation.state_changed`. (decisão do tutor no bloco do
+  tester)
+- **P1-Z, tags:** hoje as tags diferenciam maiúsculas (`VIP` ≠ `vip`) na tela, no filtro da L4 e
+  na E3. Decidir na P1-Z se normaliza (e como migrar as existentes) ou se mantém e só documenta.
+  (decisão do tutor no bloco do tester)
+- **409 `conversation_paused`, teste pendente:** o tutor pediu o teste só no contato `smoke-001`,
+  mas ele **não tem telefone nem conversa** (verificado em 2026-10-02). Não testado; aguarda o
+  Agadir indicar uma conversa de teste segura (número de teste dele).
 - **P1-E5 (`POST /v1/leads/{id}/notes`):** testar ali a **nota com autor** (`user_id`
   preenchido) no `GET /v1/leads/{id}/notes`: só a tela cria nota com autor e não havia nenhuma
   na P1-L11. Uma nota escrita pela tela no contato `smoke-001` serve. (decisão do tutor na
