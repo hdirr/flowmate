@@ -128,6 +128,16 @@ celular. Regras:
   pelo número normalizado e pela gêmea; se uma estiver em `human`, é ela que aparece. O
   `GET /v1/messages` junta o histórico das duas. (Antes procuravam só os dígitos, sem `55`, e
   contato salvo sem `55` saía com `conversation: null` / histórico vazio.)
+- **Devolver para automação** (tela e `PATCH /v1/conversations/{id}` com `automation`, P1-E0b)
+  retoma também a gêmea que estiver em `human`, mesmo que ela tenha sido pausada por outro caminho
+  (é o mesmo celular e a ordem é explícita). Cada conversa que muda gera o seu
+  `conversation.state_changed`. O badge da tela mostra `human` se qualquer uma das duas estiver
+  em `human`. Pausar (`human`) mexe só na conversa indicada (o envio já respeita a gêmea).
+- **Estado desconhecido (P1-E0b):** se a leitura da conversa falhar, o FlowMate nunca grava
+  `automation` por cima: o envio automático responde `409`; envio pela tela e grupo respondem
+  `503 conversation_unavailable`; a mensagem recebida é gravada, mas não sai `message.received`;
+  `GET /v1/contacts?phone=|id=|external_id=` e `GET /v1/messages?phone=` respondem
+  `503 conversation_unavailable` (antes afirmavam `automation`); o badge da tela fica vazio.
 - As duplicadas **não** são juntadas (Parte 2).
 
 ---
@@ -357,6 +367,9 @@ Resposta: a **Conversa**. Evento `conversation.state_changed` (P1-W1) com `chang
     - 422 `unsupported_for_group`.
   - **Efeito:** em `human`, o `message.received` deixa de ir para o n8n e o `POST /v1/messages`
     responde 409 `conversation_paused`; volta ao passar para `automation`.
+  - **Gêmea (P1-E0b):** `automation` retoma também a conversa gêmea (mesmo celular com/sem o 9º
+    dígito) que estiver em `human`, mesmo que esta conversa já esteja em `automation`; um
+    `conversation.state_changed` por conversa que mudou. A resposta é só a conversa pedida.
 
 ### `POST /v1/conversations/{id}/messages` (P1-E7)
 ```json

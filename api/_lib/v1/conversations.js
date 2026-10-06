@@ -1,7 +1,7 @@
 import { adminClient } from '../db.js';
 import { V1Error, fail, readPaging, paged, readDate, isUuid, queryParam, isRangeBeyondEnd } from './http.js';
 import { MESSAGE_COLS, toMessage } from './messages.js';
-import { setConversationState } from '../conversations.js';
+import { setConversationState, resumeAutomation } from '../conversations.js';
 import { sendMessage } from '../sendMessage.js';
 
 // Tipo e telefone a partir do JID. Grupo = @g.us. @lid (identificador novo do WhatsApp) não é
@@ -125,7 +125,7 @@ export async function listConversationMessages(req, res, { companyId, params }) 
 
 // PATCH /v1/conversations/{id} — alterna automation ↔ human. Reaproveita setConversationState
 // (o mesmo do botão da tela). Grupo não pausa → 422. Mesmo estado → 200 sem mudança.
-// Evento conversation.state_changed só na P1-W1 (no catálogo está available: false).
+// Evento conversation.state_changed (P1-W1). automation retoma também a gêmea (P1-E0b).
 // Resposta: a Conversa (mesmo formato do GET, sem last_message).
 export async function updateConversation(req, res, { companyId, params }) {
   const notFound = () => fail(res, 404, 'conversation_not_found', 'Conversa não encontrada.');
@@ -147,9 +147,16 @@ export async function updateConversation(req, res, { companyId, params }) {
     if (jidInfo(c.remote_jid).type === 'group') {
       return fail(res, 422, 'unsupported_for_group', 'Grupos não alternam entre automação e humano.');
     }
-    if (c.state !== state) {
-      // actorUserId nulo + source 'api': o evento sai com changed_by: "api" (P1-W1)
-      await setConversationState(c.id, state, null, 'api');
+    // actorUserId nulo + source 'api': o evento sai com changed_by: "api" (P1-W1).
+    // automation retoma também a gêmea em human (P1-E0b), mesmo com esta já em automation.
+    let changed = false;
+    if (state === 'automation') {
+      changed = (await resumeAutomation(c, companyId, null, 'api', admin)).includes(c.id);
+    } else if (c.state !== state) {
+      await setConversationState(c.id, state, null, 'api', admin);
+      changed = true;
+    }
+    if (changed) {
       ({ data: c, error } = await load());
       if (error) throw error;
     }

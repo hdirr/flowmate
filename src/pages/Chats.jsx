@@ -440,7 +440,9 @@ export default function Chats() {
   // Ao abrir uma conversa, busca o estado; o polling mantém em dia
   // (o dono pode ter respondido pelo celular). Grupos não têm estado.
   useEffect(() => {
-    if (!selected?.phone || selected?.isGroup) { setConvState(null); return; }
+    // Zera ao trocar de conversa: se a 1ª leitura falhar, não sobra o badge do contato anterior.
+    setConvState(null);
+    if (!selected?.phone || selected?.isGroup) return;
     loadConvState(selected.phone);
     const t = setInterval(() => { if (!document.hidden) loadConvState(selected.phone); }, 10000);
     return () => clearInterval(t);
@@ -836,12 +838,12 @@ export default function Chats() {
                   <span className="hidden sm:inline">Devolver p/ automação</span>
                 </button>
               </div>
-            ) : (
+            ) : convState?.state === 'automation' ? (
               <span title="A automação está respondendo esta conversa"
                 className="shrink-0 flex items-center gap-1 text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-1">
                 🤖 <span className="hidden sm:inline">automação</span>
               </span>
-            )}
+            ) : null /* estado ainda não lido (ou leitura falhou): não afirma "automação" */}
 
             {selected.contact && (
               <button

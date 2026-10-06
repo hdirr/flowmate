@@ -628,7 +628,8 @@ async function handleWebhook(req, res) {
 
         const timestamp = msg.messageTimestamp || Math.floor(Date.now() / 1000);
 
-        // 1) Cria ou recupera a conversa (default: automation).
+        // 1) Cria ou recupera a conversa (default: automation). null = leitura falhou (P1-E0b):
+        //    a mensagem é gravada mesmo assim, sem mexer no estado e sem repassar message.received.
         //    Grupos também ganham linha (conversation_id no log), mas a máquina
         //    de estado automático|humano NÃO se aplica a eles.
         const conversation = await getOrCreateConversation(companyId, remoteJid);
@@ -639,7 +640,9 @@ async function handleWebhook(req, res) {
         //    Em GRUPOS isso é ignorado (decisão de produto: grupos não pausam).
         if (!isGroup && fromMe && !alreadyLogged) {
           const known = await isKnownOutgoing(messageId);
-          if (!known && conversation.state !== STATE.HUMAN) {
+          if (!known && !conversation) {
+            console.error(`[webhook] resposta pelo celular sem conversa legível (jid=${remoteJid}); pausa não gravada`);
+          } else if (!known && conversation.state !== STATE.HUMAN) {
             await setConversationState(conversation.id, STATE.HUMAN, null); // null = veio do celular
             conversation.state = STATE.HUMAN;
           }
@@ -649,7 +652,7 @@ async function handleWebhook(req, res) {
         if (!alreadyLogged) {
           const { error: insErr } = await db.from('whatsapp_messages').insert({
             company_id: companyId,
-            conversation_id: conversation.id,
+            conversation_id: conversation?.id ?? null,
             instance_name: instanceName,
             remote_jid: remoteJid,
             participant_jid: participantJid,
@@ -670,7 +673,7 @@ async function handleWebhook(req, res) {
         // 4) Repassa pro consumidor SÓ quando a conversa está em automação e é 1:1.
         //    Em 'human', a automação não precisa nem saber que a mensagem existiu.
         //    Em grupos não repassamos (o robô só ENVIA para grupos).
-        if (!isGroup && !fromMe && !alreadyLogged && conversation.state === STATE.AUTOMATION) {
+        if (!isGroup && !fromMe && !alreadyLogged && conversation?.state === STATE.AUTOMATION) {
           await dispatchWebhook(companyId, 'message.received', {
             conversation_id: conversation.id,
             contact_id: conversation.contact_id,

@@ -24,14 +24,20 @@ function conversationJids(phone) {
 
 // Conversa de um telefone, como as rotas antigas devolvem ({ id, state, state_since }).
 // Com gêmeas, a que está em human ganha (o consumidor não pode ler "automation" se alguém
-// assumiu numa delas); senão, a do JID normalizado.
+// assumiu numa delas); senão, a do JID normalizado. Leitura com erro → CONV_UNAVAILABLE
+// (P1-E0b: a rota responde 503 em vez de afirmar "automation").
+const CONV_UNAVAILABLE = Symbol('conversation_unavailable');
 async function findConversationByPhone(admin, companyId, phone) {
   const jids = conversationJids(phone);
   if (!jids.length) return null;
-  const { data } = await admin.from('conversations')
+  const { data, error } = await admin.from('conversations')
     .select('id, state, state_since, remote_jid').eq('company_id', companyId).in('remote_jid', jids);
+  if (error) {
+    console.error('[v1] leitura da conversa falhou:', error.message || error);
+    return CONV_UNAVAILABLE;
+  }
   const list = data || [];
-  const pick = list.find(c => c.state === 'human') || list.find(c => c.remote_jid === jids[0]) || list[0];
+  const pick = list.find(c => c.state !== 'automation') || list.find(c => c.remote_jid === jids[0]) || list[0];
   return pick ? { id: pick.id, state: pick.state, state_since: pick.state_since } : null;
 }
 
@@ -153,6 +159,7 @@ export async function handleContacts(req, res, companyId) {
       .select('id, stage_id, pipeline_id').eq('contact_id', contact.id).limit(1);
 
     const conv = await findConversationByPhone(admin, companyId, contact.phone);
+    if (conv === CONV_UNAVAILABLE) return res.status(503).json({ error: 'conversation_unavailable' });
 
     return res.status(200).json({
       contact: {
@@ -260,6 +267,7 @@ export async function handleMessages(req, res, companyId) {
     const limit = Math.min(Number(req.query?.limit) || 50, 200);
 
     const conv = await findConversationByPhone(admin, companyId, phone);
+    if (conv === CONV_UNAVAILABLE) return res.status(503).json({ error: 'conversation_unavailable' });
 
     // Histórico das duas gêmeas juntas (é o mesmo celular). Telefone sem dígitos → vazio.
     const jids = conversationJids(phone);

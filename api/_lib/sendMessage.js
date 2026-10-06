@@ -1,23 +1,20 @@
-import { adminClient, instanceNameFor, toWhatsAppNumber, twinJid } from './db.js';
-import { getOrCreateConversation, setConversationState, STATE } from './conversations.js';
+import { adminClient, instanceNameFor, toWhatsAppNumber } from './db.js';
+import { getOrCreateConversation, setConversationState, findTwinConversation, STATE } from './conversations.js';
 import { dispatchWebhook } from './webhooks.js';
 
 const EVOLUTION_URL = process.env.EVOLUTION_API_URL;
 const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY;
 
-// Devolve a conversa em human que bloqueia o envio automático: a própria ou a gêmea
-// (mesmo celular BR com/sem o 9º dígito). null = pode enviar. Exportada para teste.
+// Devolve a conversa que bloqueia o envio automático: a própria ou a gêmea (mesmo celular BR
+// com/sem o 9º dígito). null = pode enviar. Exportada para teste.
+// Na dúvida, bloqueia (P1-E0b): conversa nula (leitura/criação falhou), estado que não é
+// exatamente 'automation' (leitura incompleta) ou erro ao ler a gêmea → 409.
 export async function findPausedConversation(admin, companyId, conversation, remoteJid) {
-  // Sem a própria conversa (leitura/criação falhou) não dá para saber o estado: recusa.
   if (!conversation) return { id: null, state: STATE.HUMAN };
-  if (conversation?.state === STATE.HUMAN) return conversation;
-  const twin = twinJid(remoteJid);
-  if (!twin) return null;
-  const { data, error } = await admin.from('conversations')
-    .select('id, state').eq('company_id', companyId).eq('remote_jid', twin).maybeSingle();
-  // Na dúvida (erro ao ler a gêmea), não envia: melhor um 409 do que atropelar um humano.
-  if (error) return { id: conversation?.id ?? null, state: STATE.HUMAN };
-  return data?.state === STATE.HUMAN ? data : null;
+  if (conversation.state !== STATE.AUTOMATION) return conversation;
+  const { twin, error } = await findTwinConversation(companyId, remoteJid, admin);
+  if (error) return { id: conversation.id ?? null, state: STATE.HUMAN };
+  return twin && twin.state !== STATE.AUTOMATION ? twin : null;
 }
 
 /**
@@ -68,6 +65,9 @@ export async function sendMessage({ companyId, to, sender, actorUserId = null, c
     const paused = await findPausedConversation(admin, companyId, conversation, remoteJid);
     if (paused) return { error: 'conversation_paused', status: 409, conversationId: paused.id };
   }
+  // Sem conversa (leitura/criação falhou) não há onde registrar nem como saber o estado:
+  // não envia (envio humano e grupo; o automático em 1:1 já parou no 409 acima).
+  if (!conversation) return { error: 'conversation_unavailable', status: 503 };
 
   // ─── Entrega via Evolution ───
   let evoRes;

@@ -62,7 +62,12 @@ Authorization: Bearer SUA_CHAVE
     e ia para um número brasileiro). O `POST /conversations/{id}/messages` passa a aceitar
     conversa com número estrangeiro (antes 422).
   - **409 mais seguro:** o mesmo celular pode ter duas conversas (com e sem o 9º dígito). Se
-    qualquer uma estiver em `human`, o envio automático leva 409.
+    qualquer uma estiver em `human`, o envio automático leva 409. `PATCH /conversations/{id}`
+    com `{ "state": "automation" }` retoma as duas (um `conversation.state_changed` para cada
+    uma que mudou).
+  - **503 `conversation_unavailable`:** se o FlowMate não conseguir ler o estado da conversa,
+    `GET /messages?phone=` e `GET /contacts?phone=` respondem 503 (antes diziam `automation`).
+    Trate como "não sei o estado": **não responda** o cliente e tente de novo depois.
 
 ## 4. Rotas disponíveis
 
