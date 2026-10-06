@@ -2,14 +2,17 @@
 
 > Documento vivo pra retomar o projeto em sessão nova, com contexto zerado.
 > **Sem segredos aqui** — chaves ficam nas env vars do Vercel / painéis.
-> Última atualização: 2026-10-02.
+> Última atualização: 2026-10-06.
 >
-> ## Estado atual (roteiro da API `/v1` — `docs/roadmap-api/`)
-> - **Últimas etapas concluídas:** leitura L1–L11 (até P1-L11 `b1d0f83`/`f3b05d1`) e, no bloco do tester n8n, P1-E4 `PATCH /v1/leads/{id}` (`8d2e784`), P1-E6 `PATCH /v1/conversations/{id}` (`d6e519e`), P1-E3 `POST /v1/contacts/{id}/tags` (`efefd45`). Relatórios em `docs/roadmap-api/relatorios/`.
-> - **Bloco do tester n8n:** código pronto; kit em `relatorios/KIT-TESTER-n8n.md` e roteiro em `relatorios/ROTEIRO-ISOLAMENTO.md`. **Falta:** o Agadir criar a empresa do tester (passo a passo no runbook abaixo, seção "onboarding manual") e rodar o roteiro de isolamento com dado real.
-> - **Bloco seguinte (2026-10-02):** P1-W1 `conversation.state_changed` (`5a1f82a`), P1-E5 `POST /v1/leads/{id}/notes` (`d7d69c3`), P1-E7 `POST /v1/conversations/{id}/messages` (`9941d03`), P1-W3 tela lendo o catálogo de eventos (`cca1a6d`). **Falta do Agadir:** roteiro de tela/celular da W1 + smoke 1.8 (mensagem chegando no Chats), conversa de teste para o envio real e o 409 da E7, conferir a tela de Integrações. Pendentes no roteiro: P1-S3/P1-W2 (chave da Evolution) e P1-Z (E1, E2 e E0 feitas na 2ª sessão de 2026-10-02, abaixo).
-> - **Bloco de 2026-10-02 (2ª sessão):** E5 corrigida (nota com `user_id` → `auto: false`, `dbb23bc`); P1-E1 `metadata` (SQL rodado pelo Agadir; código `287b046`); P1-E2 `POST /v1/contacts` (`d27ad50`); P1-E0 regra única de telefone/JID em `api/_lib/phone.js` + conversa gêmea no 409 (`4ea0521`); teste do 409 feito na conversa "Teste 409". Agente revisor pré-commit em `.claude/agents/revisor-flowmate.md` (só carrega com a sessão aberta na pasta do repo). **Falta do Agadir:** roteiro pelo celular da E0 (relatório P1-E0), envio real da E7 (ele indica o número), decisão sobre o `getOrCreateConversation` (ver P1-E0), usuário Postgres só de leitura.
-> - **Bloqueadas:** P1-S3 e P1-W2 aguardam a troca da chave da Evolution (`EVOLUTION_API_KEY`) e a criação do `WEBHOOK_SECRET`.
+> ## Estado atual (roteiro da API `/v1` — `docs/roadmap-api/`) — atualizado em 2026-10-06
+> - **Parte 1, código:** leitura L1–L11, escritas E1–E7, E0 e E0b, eventos W1 e W3 **prontos e no ar**. Relatórios em `docs/roadmap-api/relatorios/` (um por etapa).
+> - **Última etapa:** P1-E0b `eefaf17` — `getOrCreateConversation` nunca grava `automation` sobre conversa existente (leitura com erro → estado desconhecido → 409/503); "devolver para automação" (tela e `PATCH /v1/conversations/{id}`) retoma também a conversa gêmea (mesmo celular com/sem o 9º dígito).
+> - **Regras que valem para todo código novo:** telefone/JID só por `api/_lib/phone.js` (fonte única, servidor e front); envio automático respeita a conversa e a gêmea (409); na dúvida sobre o estado da conversa, nunca afirmar `automation`.
+> - **Próximo bloqueio:** P1-S3 (`WEBHOOK_SECRET` obrigatório) e P1-W2 (`whatsapp.connection`). **Plano pronto, não executado:** `relatorios/PLANO-S3-W2.md` (janela 0 fixar a imagem da Evolution; 1 trocar `EVOLUTION_API_KEY`; 2 `WEBHOOK_SECRET` com modo transição; 3 W2). O Agadir executa com o tutor.
+> - **Falta do Agadir:** roteiro pelo celular da E0 (`relatorios/P1-E0.md`); conferir a restrição única de `conversations(company_id, remote_jid)` (consulta em `relatorios/P1-E0b.md`); envio real da E7 (ele indica o número); conferências no webhook.site; roteiro de tela/celular da W1 + smoke 1.8; empresa do tester n8n + `ROTEIRO-ISOLAMENTO.md`; usuário Postgres só de leitura (opcional).
+> - **Depois disso:** P1-Z (documentação final da Parte 1, a partir de `pendencias-P1-Z.md`).
+> - **Processo:** agente revisor pré-commit em `.claude/agents/revisor-flowmate.md` (só carrega com a sessão aberta na pasta do repo, `Agadir/FlowMate`); smoke em `smoke.sh` do scratchpad (fora do repo); evidências só com pseudônimos não derivados.
+> - **Histórico dos blocos:** tester n8n (E3, E4, E6), bloco de 2026-10-02 (W1, E5, E7, W3), 2ª sessão de 2026-10-02 (E5 fix, E1, E2, E0), 2026-10-06 (E0b + plano S3/W2). Commits citados em cada relatório.
 > - **Pendências acumuladas:** `docs/roadmap-api/relatorios/pendencias-P1-Z.md`.
 >
 > **WhatsApp — mensagens e mídia OK (confirmado pelo usuário em 2026-09-28):** `supabase_whatsapp_media.sql` foi rodada, o buraco de histórico foi recuperado e mensagens/mídia novas chegam em tempo real. Ver PENDÊNCIAS A0 pro que ainda falta (Railway, limpeza Atimos).

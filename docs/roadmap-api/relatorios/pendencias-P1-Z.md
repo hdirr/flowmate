@@ -64,10 +64,19 @@ Cada item cita o relatório de origem.
 - **P1-E0, documentar na P1-Z:** regra de telefone (`+` para estrangeiro; ambíguo 11 dígitos
   com 9 na 3ª posição = BR; `0` de longa distância não é removido) e a conversa gêmea. Já estão
   no contrato e no kit. (P1-E0)
-- **P1-E0, a decidir:** (1) retomar automação quando a gêmea está em `human`; (2)
-  `getOrCreateConversation` pode sobrescrever `human` para `automation` se a leitura falhar
-  (upsert com `onConflict`): proposta de etapa própria; (3) fusão das conversas duplicadas na
-  Parte 2. (P1-E0)
+- **P1-E0, itens (1) e (2): resolvidos na P1-E0b (`eefaf17`).** "Devolver" retoma a gêmea;
+  `getOrCreateConversation` não sobrescreve mais o estado. Documentar na P1-Z: 503
+  `conversation_unavailable` (rotas antigas, tela e envio sem conversa) e como o n8n trata.
+  (P1-E0b)
+- **Parte 2 (conversas):**
+  - fusão das conversas duplicadas;
+  - `message.received` olhar a gêmea;
+  - "devolver" pela tela não criar conversa nova.
+
+  (P1-E0, P1-E0b)
+- **Agadir, conferir:** restrição única em `conversations(company_id, remote_jid)` (consulta
+  no relatório P1-E0b). (P1-E0b)
+- **P1-S3 / P1-W2:** plano em `relatorios/PLANO-S3-W2.md`; executar com o tutor. (2026-10-06)
 - **P1-E5:** nota com autor coberta na E5; **nota com `user_id` sai `auto: false`** (decisão do
   Agadir, `dbb23bc`).
 
