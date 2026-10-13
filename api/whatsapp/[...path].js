@@ -487,14 +487,26 @@ async function handleSync(req, res) {
   const allRows = [...individualRows, ...groupRowsFromChats]
     .filter(r => r.timestamp >= CUTOFF);
 
-  // Upsert em LOTE (dedup por message_id), com chunks de 500 para respeitar o
-  // limite de linhas por request do PostgREST.
+  // Upsert em LOTE (dedup por empresa + message_id — CF-A A2), com chunks de 500 para
+  // respeitar o limite de linhas por request do PostgREST.
   console.time(`[synctrace ${sid}] upserts`);
   for (let i = 0; i < allRows.length; i += 500) {
-    await admin.from('whatsapp_messages').upsert(allRows.slice(i, i + 500), {
-      onConflict: 'message_id',
+    const { error: upErr } = await admin.from('whatsapp_messages').upsert(allRows.slice(i, i + 500), {
+      onConflict: 'company_id,message_id',
       ignoreDuplicates: true,
     });
+    if (upErr?.code === '23505') {
+      // A chave GLOBAL antiga em message_id (até o SQL da A2 removê-la) barrou o lote: grava
+      // uma a uma e pula só as ocupadas por outra empresa (era o efeito do onConflict antigo).
+      let skipped = 0;
+      for (const row of allRows.slice(i, i + 500)) {
+        const { error: e1 } = await admin.from('whatsapp_messages')
+          .upsert(row, { onConflict: 'company_id,message_id', ignoreDuplicates: true });
+        if (e1?.code === '23505') skipped++;
+        else if (e1) console.error(`[sync] gravação falhou: ${e1.message}`);
+      }
+      if (skipped) console.error(`[sync] ${skipped} mensagem(ns) com message_id de outra empresa (chave global)`);
+    } else if (upErr) console.error(`[sync] upsert falhou (lote ${i / 500 + 1}): ${upErr.message}`);
   }
   console.timeEnd(`[synctrace ${sid}] upserts`);
 

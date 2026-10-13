@@ -49,9 +49,9 @@ export async function handleIncomingMessageLegacy(db, { companyId, instanceName,
   const fromMe = key.fromMe ?? msg.fromMe ?? false;
   const messageId = key.id || msg.id;
 
-  // Dedup: se já gravamos essa mensagem, ignora.
+  // Dedup: se já gravamos essa mensagem NESTA empresa, ignora (CF-A A2: por empresa).
   const { data: dup } = await db
-    .from('whatsapp_messages').select('id').eq('message_id', messageId).limit(1);
+    .from('whatsapp_messages').select('id').eq('company_id', companyId).eq('message_id', messageId).limit(1);
   const alreadyLogged = !!(dup && dup.length);
 
   const parsed = parseMessage(msg.message);
@@ -68,18 +68,18 @@ export async function handleIncomingMessageLegacy(db, { companyId, instanceName,
   //    a mensagem é gravada mesmo assim, sem mexer no estado e sem repassar message.received.
   //    Grupos também ganham linha (conversation_id no log), mas a máquina
   //    de estado automático|humano NÃO se aplica a eles.
-  const conversation = await getOrCreateConversation(companyId, remoteJid);
+  const conversation = await getOrCreateConversation(companyId, remoteJid, db);
 
   // 2) 1:1 — fromMe com message_id DESCONHECIDO = o dono respondeu pelo celular.
   //    Esse é o caso que fura a feature se for esquecido: a recepcionista responde
   //    pelo WhatsApp do celular (é o que ela sempre fez) e a automação atropela.
   //    Em GRUPOS isso é ignorado (decisão de produto: grupos não pausam).
   if (!isGroup && fromMe && !alreadyLogged) {
-    const known = await isKnownOutgoing(messageId);
+    const known = await isKnownOutgoing(messageId, companyId, db);
     if (!known && !conversation) {
       console.error(`[webhook] resposta pelo celular sem conversa legível (jid=${remoteJid}); pausa não gravada`);
     } else if (!known && conversation.state !== STATE.HUMAN) {
-      await setConversationState(conversation.id, STATE.HUMAN, null); // null = veio do celular
+      await setConversationState(conversation.id, STATE.HUMAN, null, null, db); // null = veio do celular
       conversation.state = STATE.HUMAN;
     }
   }

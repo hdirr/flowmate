@@ -84,6 +84,11 @@ select policyname, cmd from pg_policies where schemaname = 'public' and tablenam
 -- ============================================================================
 -- PARTE 1 — segurança + chaves por empresa
 -- ----------------------------------------------------------------------------
+-- CORREÇÃO DO REGISTRO (2026-10-13, depois de rodar): no banco, companies JÁ estava só
+-- leitura (tenant_read) desde 29/09/2026 — o Agadir fechou direto no banco
+-- (docs/roadmap-api/11-parte1-seguranca.md), sem SQL no repo. O "achado" abaixo foi tirado
+-- só dos arquivos do repo (supabase_rls.sql) e estava DESATUALIZADO. Esta parte apenas
+-- confirmou o estado (a 0.8 mostrou só tenant_read antes). Texto original:
 -- ACHADO (2026-10-13): a política "tenant_isolation" de companies é FOR ALL. Qualquer
 -- usuário logado pode ALTERAR a linha da própria empresa pela anon key — inclusive
 -- subscription_status ('active' sem pagar), plan_level e line_cap. A tela só LÊ

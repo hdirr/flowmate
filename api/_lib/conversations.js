@@ -156,10 +156,12 @@ export async function setConversationState(conversationId, state, actorUserId = 
 // Uma mensagem fromMe cujo message_id o Flowmate NÃO conhece foi enviada do celular do dono.
 // Esse é o caso que quebra tudo se for esquecido: a recepcionista responde pelo celular
 // e a automação atropela por cima.
-export async function isKnownOutgoing(messageId) {
+// Filtrado por empresa (CF-A A2): o mesmo message_id pode existir em outra empresa (uma
+// empresa escreve para a outra, ou as duas estão no mesmo grupo).
+export async function isKnownOutgoing(messageId, companyId, admin = adminClient()) {
   if (!messageId) return false;
-  const admin = adminClient();
-  const { data } = await admin
-    .from('whatsapp_messages').select('id').eq('message_id', messageId).limit(1);
+  let q = admin.from('whatsapp_messages').select('id').eq('message_id', messageId);
+  if (companyId) q = q.eq('company_id', companyId);
+  const { data } = await q.limit(1);
   return !!(data && data.length);
 }
