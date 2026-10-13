@@ -4,6 +4,7 @@ import { sendMessage } from '../_lib/sendMessage.js';
 import { parseMessage } from '../_lib/whatsappParse.js';
 import { isFeatureOn } from '../_lib/features.js';
 import { acceptWebhook, applyConnectionUpdate, handleIncomingMessageLegacy, processDueEvents } from '../_lib/inbound.js';
+import { runReconcile } from '../_lib/reconcile.js';
 import crypto from 'crypto';
 
 // Catch-all do WhatsApp. Consolida connect/send/send-media/status/sync/webhook
@@ -829,9 +830,11 @@ async function handleJobs(req, res) {
   const t0 = Date.now();
   const db = adminClient();
   // Prazo curto: o limite da função no plano da Vercel está "a confirmar" (vercel.json sem maxDuration).
-  const inbound = await processDueEvents(db, { limit: 50, deadline: t0 + 8_000 });
-  console.log(`[jobs] inbound=${JSON.stringify(inbound)} em ${Date.now() - t0}ms`);
-  return res.status(200).json({ ok: true, inbound });
+  const inbound = await processDueEvents(db, { limit: 50, deadline: t0 + 5_000 });
+  // A4: reconciliação das linhas com a chave `reconcile` (nenhuma, enquanto ninguém ligar).
+  const reconcile = await runReconcile(db, evo, { deadline: t0 + 8_000 });
+  console.log(`[jobs] inbound=${JSON.stringify(inbound)} reconcile=${JSON.stringify(reconcile)} em ${Date.now() - t0}ms`);
+  return res.status(200).json({ ok: true, inbound, reconcile });
 }
 
 // ─── roteador ───────────────────────────────────────────────────────────────

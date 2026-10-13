@@ -86,3 +86,11 @@ Depende do SQL (`supabase_cf_a.sql`, partes 1, 2, 3 e 7), que o Agadir ainda nã
 - **Entrada pelos dois caminhos:** se a leitura das chaves falhar por um instante com a chave ligada, um
   reenvio da Evolution pode entrar pelos dois caminhos (`message.received` repetido com outro
   `event_id`). Raro; somem quando o legado for removido (contração da CF-A).
+
+## Produção (`b5827f4`, deploy confirmado pelo status do GitHub)
+| Caso | Resultado |
+| --- | --- |
+| `GET /api/whatsapp/jobs` | 405 |
+| `POST /api/whatsapp/jobs` (sem `JOBS_SECRET` na Vercel) | 503 `jobs_not_configured` |
+| Webhook com instância inexistente (sem prefixo `flowmate-`) | 200, ignorado (caminho legado, nada gravado) |
+| Smoke | idêntico, exceto 1.2/1.3, que mudaram por causa do **envio real da E7 de hoje** (nova mensagem e novo `state_since` da conversa "Teste 409"). Nova base do smoke |
