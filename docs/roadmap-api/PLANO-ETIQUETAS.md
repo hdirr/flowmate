@@ -1,10 +1,23 @@
 # Plano — Etiquetas (a trava de conversa vira etiqueta)
 
 > **Desenho, ainda não implementado.** Pedido do Agadir em 2026-10-13.
-> **Integração pendente:** o `PLANO-CONFIABILIDADE.md` e o "arquivo único do SQL da Fase A",
-> citados no pedido, não existem no repo (nem em arquivo local). Até o Agadir reenviar esse
-> plano, este desenho usa as regras da Parte 2 (`30-parte2-visao.md`): migração em duas fases
-> (expandir → contrair) e chave liga/desliga por empresa em `companies.features`.
+>
+> **Onde entra no `PLANO-CONFIABILIDADE.md`:**
+> - **ET-0 (SQL):** no arquivo único da CF-A (`supabase_cf_a.sql`).
+> - **ET-1/ET-2** (chaves e API de etiquetas, sem tocar no caminho de mensagens): durante a CF-A.
+> - **ET-3/ET-4** (envio/recebimento e tela): **depois da A6 e antes da B2** (CF-B), porque mexem
+>   no mesmo caminho que a CF-A e precisam existir antes de a B2 refazer a chave de
+>   `conversations`.
+> - **ET-B:** junto com a contração da B2.
+>
+> **Decisões do Agadir (2026-10-13):**
+> - `message.received` com a chave `labels` ligada sai **sempre**, com as etiquetas da conversa
+>   no payload, mesmo com `block_api_send_on_human` ligada;
+> - etiqueta de sistema **proibida em contato** (só em conversa);
+> - paleta de 8 cores fixas + cinza padrão: **aprovada**.
+>
+> **Regra de produto:** etiqueta nunca trava envio, recebimento, roteamento nem atendimento (ver
+> o contrato).
 
 ## Regra de produto (nova)
 - "Atendimento humano" e "Atendimento IA" deixam de ser **trava** e viram **etiquetas**, como na
@@ -183,8 +196,7 @@ create table public.conversation_labels (
   - `contact.tags_updated`, junto com o `contact.labels_updated`.
 - **`message.received`** com a chave ligada passa a sair **sempre** (inclusive em "Atendimento
   humano"), com `labels` e `state` no payload. Sem isso o n8n não teria como decidir.
-  **Decisão do Agadir** (é o bloco 12 da Parte 2 em aberto). Alternativa: continuar só em IA
-  quando a trava estiver ligada.
+  **Decidido (2026-10-13): sempre**, mesmo com `block_api_send_on_human` ligada.
 
 ## Marcação automática (substitui as transições de estado de hoje)
 | Quando | Hoje (chave desligada) | Com `labels` ligada |
@@ -271,10 +283,5 @@ create table public.conversation_labels (
 - **`PATCH /v1/conversations/{id}` com `state`:** continua aceito; o caminho recomendado passa a
   ser `POST /v1/conversations/{id}/labels`.
 
-## Decisões em aberto (Agadir)
-1. **Integração com o `PLANO-CONFIABILIDADE.md`:** em que ponto da Fase A/B entra, e o nome do
-   arquivo único do SQL. O plano ainda não existe no repo.
-2. **`message.received` com a chave ligada:** sempre (recomendado) ou só em IA quando a trava
-   estiver ligada?
-3. **Etiqueta de sistema em contato:** proibir (proposta) ou permitir?
-4. **Cor padrão e paleta** da tela (proposta: 8 cores fixas + cinza padrão).
+## Decisões (respondidas em 2026-10-13)
+Todas no topo deste arquivo. Nada em aberto.

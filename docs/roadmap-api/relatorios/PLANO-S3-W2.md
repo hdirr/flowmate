@@ -25,11 +25,43 @@ Fazer em horário de pouco movimento, com as automações que enviam WhatsApp pa
 da empresa à mão (caso peça QR). Antes de cada janela: anotar o valor **atual** no cofre (é o
 rollback).
 
-### Janela 0 — fixar a versão da Evolution (pré-requisito)
-1. Railway → `evolution-api` → Settings → Source/Image: trocar `:latest` pela tag da versão
-   em uso (hoje **v2.3.7**; conferir a versão real em `GET /` da Evolution ou nos logs de boot).
-2. Redeploy. Esperar o serviço ficar "Active".
-3. **Validar** (lista V abaixo). **Rollback:** voltar a imagem anterior.
+### Janela 0 — fixar a versão da Evolution e as variáveis de gravação (A0 do `PLANO-CONFIABILIDADE`)
+**Por que pelo digest e não pela tag:**
+- no Docker Hub, `evoapicloud/evolution-api:latest` foi atualizada em **06/05/2026**, com um
+  digest diferente do da `v2.3.7` (de 05/12/2025);
+- no mesmo dia saiu a `2.4.0-rc1`;
+- então "a versão de produção" **não é garantidamente a `v2.3.7`**: é a imagem que o Railway
+  baixou no último redeploy.
+
+1. **Descobrir o que está rodando:**
+   - Railway → `evolution-api` → Deployments → o deployment ativo mostra a imagem e o
+     **digest** (`sha256:…`);
+   - `GET https://<domínio da Evolution>/` devolve a versão (`version`);
+   - anotar os dois no cofre.
+2. **Fixar:** Settings → Source → Image =
+   - `evoapicloud/evolution-api@sha256:<digest anotado>` (exatamente o que roda hoje), **ou**
+   - `evoapicloud/evolution-api:v2.3.7`, se o `GET /` disser 2.3.7 e o tutor preferir a tag
+     (o digest da `v2.3.7` no Docker Hub começa com `sha256:1bd8afc4`; se for diferente do
+     anotado, a imagem muda: tratar como atualização, com a validação completa).
+3. **Variáveis de gravação** (Railway → Variables do `evolution-api`; valores recomendados):
+
+   | Variável | Recomendado | Efeito no FlowMate |
+   | --- | --- | --- |
+   | `DATABASE_SAVE_DATA_NEW_MESSAGE` | `true` (**não desligar**) | É o arquivo de mensagens: "Importar conversas", rolagem do histórico e a reconciliação (A4) leem daqui |
+   | `DATABASE_SAVE_DATA_HISTORIC` | `true` (decisão) | Grava o histórico que o WhatsApp manda ao parear (foi o que encheu o volume em 09/2026). `false` = depois de um QR novo, as conversas antigas não aparecem no "Importar" nem na rolagem; só o que chegar depois |
+   | `DATABASE_SAVE_MESSAGE_UPDATE` | `false` | Status de entrega/leitura de cada mensagem; o FlowMate não usa. Economiza disco |
+   | `DATABASE_SAVE_DATA_CHATS` / `_CONTACTS` | `true` | O sync usa `findChats` |
+   | `DATABASE_SAVE_DATA_LABELS` | `false` | Etiquetas do WhatsApp Business; o FlowMate não usa |
+   | `WEBHOOK_REQUEST_TIMEOUT_MS` | `30000` | Abaixo do limite da função da Vercel (a confirmar no projeto) |
+   | `WEBHOOK_RETRY_MAX_ATTEMPTS` | `10` (padrão) | Reenvio de ≈ 20 min, só em memória. Com a A1 (caixa durável), a Vercel só responde 2xx depois de gravar |
+
+   **Atenção:** na 2.3.7, cada `DATABASE_SAVE_*` é lida como `=== 'true'` (`env.config.ts`).
+   **Variável ausente = `false`.** Por isso, declarar **todas** explicitamente. As de webhook têm
+   padrão (timeout 30 s, 10 tentativas). Conferir no painel os valores atuais antes de mudar.
+4. **Redeploy** (uma vez, com imagem + variáveis). Esperar "Active".
+5. **Validar** (lista V abaixo) + `GET /` mostra a mesma versão anotada. Acompanhar o uso do
+   volume no dia seguinte.
+6. **Rollback:** voltar a imagem e as variáveis anotadas no passo 1; redeploy.
 
 ### Janela 1 — trocar `EVOLUTION_API_KEY` (troca da chave fraca)
 1. Gerar a chave nova (aleatória, só letras e dígitos; ex.: 64 hex) e guardar no cofre como
