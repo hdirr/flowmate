@@ -56,8 +56,19 @@ Cada item cita o relatório de origem.
   número estrangeiro sem código do país iria para um número brasileiro errado no
   `POST /v1/messages` antigo e no `sendMessage`. A E7 se protege (422); a rota antiga não.
   (P1-E7) **Feito na P1-E0 (`4ea0521`).**
-- **P1-E7, envio real:** aguardando o Agadir indicar o número (decisão de 2026-10-02: "ainda
-  não"). (P1-E7)
+- **P1-E7, envio real:** **feito** em 2026-10-13, 17:04 UTC, na conversa "Teste 409" (número do
+  Agadir, único autorizado). 200, mensagem gravada, conversa voltou para `human`. Falta o
+  Agadir confirmar no celular. (P1-E7)
+- **Webhooks verificados (Agadir, 07/10):** chegaram todos os tipos no webhook.site:
+  - `lead.updated` 11, `lead.moved` 5, `lead.created` 1;
+  - `contact.tags_updated` 3, `contact.created` 2, `contact.updated` 3;
+  - `note.created` 4;
+  - `conversation.state_changed` 13, inclusive em uso real de 03 a 05/10;
+  - `message.received` 8.
+
+  A caixa bateu 50/50 em 05/10 13:52 (UTC-3) e a URL expirou em 08/10, por isso os eventos da
+  E0b não aparecem. **Pendente:** trocar a URL de webhook da empresa do Agadir
+  (Configurações → Integrações). (2026-10-13)
 - **409 `conversation_paused`:** **testado** em 2026-10-02 na conversa "Teste 409" (já em
   `human`), por `POST /v1/messages` e `POST /v1/conversations/{id}/messages`: 409 nos dois,
   nada enviado, estado intacto. (P1-E0)
@@ -74,8 +85,6 @@ Cada item cita o relatório de origem.
   - "devolver" pela tela não criar conversa nova.
 
   (P1-E0, P1-E0b)
-- **Agadir, conferir:** restrição única em `conversations(company_id, remote_jid)` (consulta
-  no relatório P1-E0b). (P1-E0b)
 - **P1-S3 / P1-W2:** plano em `relatorios/PLANO-S3-W2.md`; executar com o tutor. (2026-10-06)
 - **P1-E5:** nota com autor coberta na E5; **nota com `user_id` sai `auto: false`** (decisão do
   Agadir, `dbb23bc`).
@@ -123,7 +132,8 @@ Cada item cita o relatório de origem.
 - Contato "Teste E2" (`external_id` `teste-e2-001`). (P1-E2)
 - Usuário de teste "hhhh" (vendedor, inativo) da empresa FlowMate; confirmado como teste pelo
   Agadir. (P1-L5/L6)
-- Link do webhook.site em Configurações → Integrações (`5e03e930…`): **público e expira em 7
-  dias**. Tirar ao fim dos testes. (P1-S4)
+- Link do webhook.site em Configurações → Integrações (`5e03e930…`): **expirou em 08/10**.
+  Trocar por uma URL nova de teste (ou tirar). (P1-S4, 2026-10-13)
+- Mensagem "Teste FlowMate E7" na conversa "Teste 409" (envio real autorizado). (P1-E7)
 - Itens que já estavam no HANDOFF: contatos "Teste 409" e "Teste Idempotencia", cobranças de
   teste no AbacatePay, linhas de teste em `pending_signups`.

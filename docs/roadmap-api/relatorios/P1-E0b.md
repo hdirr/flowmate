@@ -126,3 +126,11 @@ de fora. Os dois casos estão cobertos nos testes locais.
    da "Teste S4b" por volta de 20:43 UTC de 06/10. Conferir no webhook.site.
 5. **Roteiro pelo celular da E0** (relatório P1-E0) continua com o Agadir. O passo 2 (devolver)
    agora também confere que o badge volta a "automação".
+
+## Atualização (2026-10-13)
+- **Pendência 1 resolvida:** o Agadir confirmou o índice único
+  `conversations_company_id_remote_jid_key` em `(company_id, remote_jid)`. O tratamento do
+  `23505` está correto.
+- **Pendência 4 (webhook.site):** os eventos desta etapa não puderam ser conferidos. A caixa do
+  webhook.site bateu 50/50 em 05/10 e a URL expirou em 08/10. Os tipos de evento já tinham sido
+  conferidos em 07/10 (ver pendências).

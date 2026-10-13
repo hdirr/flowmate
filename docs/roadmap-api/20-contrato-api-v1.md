@@ -7,6 +7,15 @@ chave; um id de outra empresa responde **404**, nunca 403 (não revelamos que ex
 Nomes de campo: os **objetos** seguem o banco (`snake_case`); os **parâmetros de paginação e
 filtro** seguem a Helena (`pageNumber`, `pageSize`, `createdAfter`...). É de propósito.
 
+## Regra de produto: etiquetas não travam nada (2026-10-13)
+Etiquetas (tags de contato hoje; etiquetas de contato e de conversa depois do
+`PLANO-ETIQUETAS.md`) são **só marcadores**. Nunca travam envio, recebimento, roteamento nem
+atendimento. Quem trata etiqueta é a automação do cliente (n8n).
+- **Até a virada do `PLANO-ETIQUETAS`:** a única trava é o **estado da conversa** (`human` →
+  `409 conversation_paused` no envio automático).
+- **Depois da virada:** a única trava é a opcional `block_api_send_on_human`, por empresa e
+  desligada por padrão.
+
 ## Convenções
 
 ### Lista paginada
