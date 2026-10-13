@@ -26,7 +26,9 @@ import { adminClient } from './db.js';
  * A assinatura cobre `${timestamp}.${rawBody}` — o timestamp entra no que é assinado
  * pra que um POST capturado não possa ser reenviado depois (replay).
  */
-export async function dispatchWebhook(companyId, event, data) {
+// opts.eventId: id fixo do evento (a caixa de entrada da CF-A reprocessa com o mesmo id, e o
+// consumidor deduplica). Sem ele, um id novo — como sempre foi.
+export async function dispatchWebhook(companyId, event, data, opts = {}) {
   if (!companyId || !event) return { skipped: true };
 
   const admin = adminClient();
@@ -43,7 +45,7 @@ export async function dispatchWebhook(companyId, event, data) {
     return { skipped: true };
   }
 
-  const eventId = crypto.randomUUID();
+  const eventId = opts.eventId || crypto.randomUUID();
   const payload = {
     event_id: eventId,
     event,

@@ -1,8 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveUser, adminClient, instanceNameFor, toWhatsAppNumber, jidFor } from '../_lib/db.js';
 import { sendMessage } from '../_lib/sendMessage.js';
-import { getOrCreateConversation, setConversationState, isKnownOutgoing, STATE } from '../_lib/conversations.js';
-import { dispatchWebhook } from '../_lib/webhooks.js';
+import { parseMessage } from '../_lib/whatsappParse.js';
+import { isFeatureOn } from '../_lib/features.js';
+import { acceptWebhook, applyConnectionUpdate, handleIncomingMessageLegacy, processDueEvents } from '../_lib/inbound.js';
+import crypto from 'crypto';
 
 // Catch-all do WhatsApp. Consolida connect/send/send-media/status/sync/webhook
 // (mantém as URLs antigas) e adiciona os endpoints de GRUPOS:
@@ -35,46 +37,7 @@ async function evo(path, { method = 'GET', body } = {}) {
   return { ok: res.ok, status: res.status, text, json };
 }
 
-// ─── parser de mensagem (texto/mídia) ────────────────────────────────────────
-// O WhatsApp embrulha mensagens efêmeras, "ver uma vez", editadas e documentos
-// com legenda em outro objeto; desembrulha antes de olhar o tipo.
-function unwrapMessage(message) {
-  let cur = message || {};
-  for (let i = 0; i < 4; i++) {
-    const inner =
-      cur.ephemeralMessage?.message ||
-      cur.viewOnceMessage?.message ||
-      cur.viewOnceMessageV2?.message ||
-      cur.viewOnceMessageV2Extension?.message ||
-      cur.documentWithCaptionMessage?.message ||
-      cur.editedMessage?.message;
-    if (!inner) break;
-    cur = inner;
-  }
-  return cur;
-}
-
-const MEDIA_KINDS = [
-  ['imageMessage', 'image', '[imagem]'],
-  ['videoMessage', 'video', '[vídeo]'],
-  ['audioMessage', 'audio', '[áudio]'],
-  ['documentMessage', 'document', '[documento]'],
-  ['stickerMessage', 'sticker', '[sticker]'],
-];
-
-// → { type, content, fileName }. type ∈ text|image|video|audio|document|sticker.
-// content é a legenda (ou um marcador tipo "[áudio]" quando não há legenda);
-// para texto sem conteúdo devolve null.
-function parseMessage(message) {
-  const m = unwrapMessage(message);
-  for (const [key, type, placeholder] of MEDIA_KINDS) {
-    const x = m[key];
-    if (!x) continue;
-    const fileName = type === 'document' ? (x.fileName || x.title || null) : null;
-    return { type, content: x.caption || placeholder, fileName };
-  }
-  return { type: 'text', content: m.conversation || m.extendedTextMessage?.text || null, fileName: null };
-}
+// ─── parser de mensagem: api/_lib/whatsappParse.js ─────────────────────────
 
 // Corpo do webhook no formato da Evolution v2: tudo dentro de `webhook`. Só os
 // eventos que o handler consome (menos eventos = menos invocações no Vercel).
@@ -578,17 +541,17 @@ async function handleWebhook(req, res) {
     const t0 = Date.now();
     console.log(`[webhook] event=${event} instance=${instanceName} company=${companyId ?? '-'}`);
 
+    // CF-A (A1): caixa de entrada durável, só com a chave inbound_inbox ligada na empresa.
+    // Grava cru antes de processar; sem gravar → 503 (a Evolution reenvia). Desligada = abaixo.
+    if (companyId && (event === 'messages.upsert' || event === 'connection.update')
+        && await isFeatureOn(companyId, 'inbound_inbox', db)) {
+      const r = await acceptWebhook(db, { companyId, instanceName, event, body });
+      console.log(`[webhook] inbox ${event} → ${r.status} em ${Date.now() - t0}ms`);
+      return res.status(r.status).json(r.body);
+    }
+
     if (event === 'connection.update') {
-      const state = body?.data?.state;
-      const phone = body?.data?.wuid?.replace('@s.whatsapp.net', '') || null;
-      if (companyId) {
-        await db.from('whatsapp_instances').upsert({
-          company_id: companyId,
-          instance_name: instanceName,
-          status: state === 'open' ? 'connected' : 'disconnected',
-          phone,
-        }, { onConflict: 'company_id' });
-      }
+      await applyConnectionUpdate(db, { companyId, instanceName, body });
       return res.status(200).json({ ok: true });
     }
 
@@ -603,88 +566,7 @@ async function handleWebhook(req, res) {
       console.log(`[webhook] messages.upsert n=${messages.length} (${Date.now() - t0}ms até o parser)`);
 
       for (const msg of messages) {
-        const key = msg.key || {};
-        const remoteJid = key.remoteJidAlt || key.remoteJid || msg.remoteJid || '';
-        if (!remoteJid) continue;
-
-        const isGroup = remoteJid.includes('@g.us');
-        const participantJid = isGroup ? (key.participant || msg.participant || null) : null;
-
-        const fromMe = key.fromMe ?? msg.fromMe ?? false;
-        const messageId = key.id || msg.id;
-
-        // Dedup: se já gravamos essa mensagem, ignora.
-        const { data: dup } = await db
-          .from('whatsapp_messages').select('id').eq('message_id', messageId).limit(1);
-        const alreadyLogged = !!(dup && dup.length);
-
-        const parsed = parseMessage(msg.message);
-        const content = parsed.content || msg.text || '[mídia]';
-        console.log(`[webhook] msg jid=${remoteJid} id=${messageId} type=${parsed.type} fromMe=${fromMe} dup=${alreadyLogged}`);
-
-        const contactName = isGroup
-          ? (msg.pushName || (participantJid ? participantJid.replace(/@.*/, '') : remoteJid.replace(/@.*/, '')))
-          : (msg.pushName || remoteJid.replace(/@.*/, ''));
-
-        const timestamp = msg.messageTimestamp || Math.floor(Date.now() / 1000);
-
-        // 1) Cria ou recupera a conversa (default: automation). null = leitura falhou (P1-E0b):
-        //    a mensagem é gravada mesmo assim, sem mexer no estado e sem repassar message.received.
-        //    Grupos também ganham linha (conversation_id no log), mas a máquina
-        //    de estado automático|humano NÃO se aplica a eles.
-        const conversation = await getOrCreateConversation(companyId, remoteJid);
-
-        // 2) 1:1 — fromMe com message_id DESCONHECIDO = o dono respondeu pelo celular.
-        //    Esse é o caso que fura a feature se for esquecido: a recepcionista responde
-        //    pelo WhatsApp do celular (é o que ela sempre fez) e a automação atropela.
-        //    Em GRUPOS isso é ignorado (decisão de produto: grupos não pausam).
-        if (!isGroup && fromMe && !alreadyLogged) {
-          const known = await isKnownOutgoing(messageId);
-          if (!known && !conversation) {
-            console.error(`[webhook] resposta pelo celular sem conversa legível (jid=${remoteJid}); pausa não gravada`);
-          } else if (!known && conversation.state !== STATE.HUMAN) {
-            await setConversationState(conversation.id, STATE.HUMAN, null); // null = veio do celular
-            conversation.state = STATE.HUMAN;
-          }
-        }
-
-        // 3) Grava no log (fonte da verdade)
-        if (!alreadyLogged) {
-          const { error: insErr } = await db.from('whatsapp_messages').insert({
-            company_id: companyId,
-            conversation_id: conversation?.id ?? null,
-            instance_name: instanceName,
-            remote_jid: remoteJid,
-            participant_jid: participantJid,
-            from_me: fromMe,
-            message_type: parsed.type,
-            content,
-            file_name: parsed.fileName,
-            timestamp,
-            contact_name: contactName,
-            status: fromMe ? 'sent' : 'received',
-            message_id: messageId,
-          });
-          if (insErr) {
-            console.error(`[webhook] insert falhou (type=${parsed.type}, id=${messageId}): ${insErr.message}`);
-          }
-        }
-
-        // 4) Repassa pro consumidor SÓ quando a conversa está em automação e é 1:1.
-        //    Em 'human', a automação não precisa nem saber que a mensagem existiu.
-        //    Em grupos não repassamos (o robô só ENVIA para grupos).
-        if (!isGroup && !fromMe && !alreadyLogged && conversation?.state === STATE.AUTOMATION) {
-          await dispatchWebhook(companyId, 'message.received', {
-            conversation_id: conversation.id,
-            contact_id: conversation.contact_id,
-            remote_jid: remoteJid,
-            from: remoteJid.replace(/@.*/, ''),
-            contact_name: contactName,
-            content,
-            message_id: messageId,
-            timestamp,
-          });
-        }
+        await handleIncomingMessageLegacy(db, { companyId, instanceName, msg });
       }
 
       console.log(`[webhook] messages.upsert processadas em ${Date.now() - t0}ms`);
@@ -932,6 +814,26 @@ async function handleHistory(req, res) {
   });
 }
 
+// ─── jobs (CF-A, A3) ─────────────────────────────────────────────────────────
+// Chamado a cada minuto pelo pg_cron (Supabase) com o header x-jobs-secret = JOBS_SECRET.
+// Reprocessa eventos de entrada pendentes/com falha. Sem JOBS_SECRET configurado → 503.
+async function handleJobs(req, res) {
+  if (req.method !== 'POST') return res.status(405).end();
+  const expected = process.env.JOBS_SECRET;
+  if (!expected) return res.status(503).json({ error: 'jobs_not_configured' });
+  const got = Buffer.from(String(req.headers['x-jobs-secret'] || ''), 'utf8');
+  const want = Buffer.from(expected, 'utf8');
+  if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const t0 = Date.now();
+  const db = adminClient();
+  // Prazo curto: o limite da função no plano da Vercel está "a confirmar" (vercel.json sem maxDuration).
+  const inbound = await processDueEvents(db, { limit: 50, deadline: t0 + 8_000 });
+  console.log(`[jobs] inbound=${JSON.stringify(inbound)} em ${Date.now() - t0}ms`);
+  return res.status(200).json({ ok: true, inbound });
+}
+
 // ─── roteador ───────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   // req.query.path às vezes vem vazio (Vercel entrega o segmento como
@@ -952,6 +854,7 @@ export default async function handler(req, res) {
     'history': handleHistory,
     'media': handleMedia,
     'webhook': handleWebhook,
+    'jobs': handleJobs,
     'groups': handleGroups,
     '': handleGroups, // /api/whatsapp → GET lista grupos (fallback amigável)
   };

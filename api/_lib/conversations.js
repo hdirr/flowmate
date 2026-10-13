@@ -123,12 +123,14 @@ export async function setConversationState(conversationId, state, actorUserId = 
     before = data;
   } catch (e) { console.error('[conversations] leitura antes da troca falhou:', e?.message || e); }
 
-  await admin.from('conversations').update({
+  const { error: updErr } = await admin.from('conversations').update({
     state,
     state_since: new Date().toISOString(),
     state_by: actorUserId,
     updated_at: new Date().toISOString(),
   }).eq('id', conversationId);
+  // Devolve o erro (a caixa de entrada da CF-A usa para tentar de novo; os demais ignoram).
+  if (updErr) return { error: updErr };
 
   // O webhook do cliente nunca pode derrubar nem segurar a troca de estado: este código também
   // roda no fluxo de mensagens (dono respondeu pelo celular). try/catch + limite de 3 s.
@@ -148,6 +150,7 @@ export async function setConversationState(conversationId, state, actorUserId = 
       ]);
     } catch (e) { console.error('[conversations] webhook state_changed falhou:', e?.message || e); }
   }
+  return { ok: true };
 }
 
 // Uma mensagem fromMe cujo message_id o Flowmate NÃO conhece foi enviada do celular do dono.
