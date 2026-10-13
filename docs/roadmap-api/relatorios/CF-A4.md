@@ -61,8 +61,8 @@ Depende do SQL (`supabase_cf_a.sql`: parte 3, chave única por empresa; parte 4,
   - chave global barra o lote → linha a linha (grava a que pode, conta a ocupada);
   - ordem crescente com filtro ignorado não freia;
   - marcador ilegível pula a linha sem zerar o total.
-- **Produção:** a rota de jobs continua respondendo 503 sem `JOBS_SECRET` (nada roda até o
-  agendador existir).
+- **Produção** (`0886bb9`): `GET /jobs` 405; `POST /jobs` 503 `jobs_not_configured` (sem
+  `JOBS_SECRET`, nada roda até o agendador existir); **smoke idêntico** à base nova da CF-A1.
 
 ## A confirmar antes de ligar
 - **Formato do filtro de data** aceito pela Evolution 2.3.7 em `where.messageTimestamp` (o

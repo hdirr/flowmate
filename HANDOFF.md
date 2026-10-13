@@ -2,9 +2,10 @@
 
 > Documento vivo pra retomar o projeto em sessão nova, com contexto zerado.
 > **Sem segredos aqui** — chaves ficam nas env vars do Vercel / painéis.
-> Última atualização: 2026-10-06.
+> Última atualização: 2026-10-13.
 >
-> ## Estado atual (roteiro da API `/v1` — `docs/roadmap-api/`) — atualizado em 2026-10-06
+> ## Estado atual (roteiro da API `/v1` — `docs/roadmap-api/`) — atualizado em 2026-10-13
+> - **Confiabilidade (2026-10-13, em andamento):** `docs/roadmap-api/PLANO-CONFIABILIDADE.md` (diagnóstico + CF-A…D; etiquetas encaixadas entre CF-A e CF-B). No ar, **atrás de chaves desligadas**: A1/A3 caixa de entrada durável + `POST /api/whatsapp/jobs` (`b5827f4`), A4 reconciliação (`0886bb9`). **Parado esperando o Agadir:** rodar `supabase_cf_a.sql` (`599682d`, partes 0–6 e 8; parte 7 depois do `JOBS_SECRET`). Nada liga sem ele.
 > - **Parte 1, código:** leitura L1–L11, escritas E1–E7, E0 e E0b, eventos W1 e W3 **prontos e no ar**. Relatórios em `docs/roadmap-api/relatorios/` (um por etapa).
 > - **Última etapa:** P1-E0b `eefaf17` — `getOrCreateConversation` nunca grava `automation` sobre conversa existente (leitura com erro → estado desconhecido → 409/503); "devolver para automação" (tela e `PATCH /v1/conversations/{id}`) retoma também a conversa gêmea (mesmo celular com/sem o 9º dígito).
 > - **Regras que valem para todo código novo:** telefone/JID só por `api/_lib/phone.js` (fonte única, servidor e front); envio automático respeita a conversa e a gêmea (409); na dúvida sobre o estado da conversa, nunca afirmar `automation`. **Regra de produto (2026-10-13): etiquetas são só marcadores e nunca travam envio, recebimento, roteamento nem atendimento; quem trata etiqueta é a automação do cliente (n8n). Até a virada do `PLANO-ETIQUETAS`, a única trava é o estado da conversa; depois, só a trava opcional `block_api_send_on_human`.**
