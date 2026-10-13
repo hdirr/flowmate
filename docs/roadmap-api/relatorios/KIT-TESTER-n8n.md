@@ -199,6 +199,29 @@ O mesmo exemplo aparece na tela de Integrações, já com o seu segredo.
 5. **Idempotência de lead:** use sempre o mesmo `external_id`.
 6. **Sem limite de requisições ainda, mas seja gentil:** no máximo algumas por segundo.
 
+## 6b. Mudança anunciada: a trava vira etiqueta (ainda NÃO ativa)
+O FlowMate vai deixar de **travar** o envio em conversa com atendente e passar a só **marcar** a
+conversa com etiquetas, como a Helena: **"Atendimento humano"** ou **"Atendimento IA"** (sempre
+uma das duas). Quem decide se responde passa a ser **o seu fluxo do n8n**.
+
+- **Hoje nada mudou:** continua valendo o 409 `conversation_paused` e as regras acima.
+- **Quando a mudança for ligada na sua empresa** (você será avisado antes):
+  - o envio pela API **não é mais recusado** por causa da etiqueta. Existe uma opção por empresa
+    para manter o bloqueio, desligada por padrão;
+  - a conversa passa a trazer `labels` (e continua trazendo `state`, derivado da etiqueta);
+  - saem os eventos `conversation.labels_updated` e `contact.labels_updated`. O
+    `conversation.state_changed` continua por um tempo.
+- **Padrão recomendado, já a partir de hoje:** **antes de responder, confira se a conversa está
+  com atendente.**
+  1. `GET /conversations/{id}` (o `conversation_id` vem no `message.received`).
+  2. Não responda se:
+     - **hoje:** `state` for `"human"`;
+     - **depois da mudança:** `labels` tiver **"Atendimento humano"**.
+  3. Trate **503** como "não sei": não responda e tente de novo depois.
+
+  Quem já faz essa checagem não precisa mudar nada quando a etiqueta for ligada.
+- O desenho completo está em `docs/roadmap-api/PLANO-ETIQUETAS.md`.
+
 ## 7. Como reportar problemas
 Mande ao Agadir:
 - a rota;
