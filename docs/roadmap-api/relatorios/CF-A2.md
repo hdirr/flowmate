@@ -51,3 +51,11 @@ código já está pronto para quando o SQL tirar o índice.
 4. **Rollback:** está no arquivo. Só funciona enquanto nenhuma mensagem se repetir entre
    empresas. Depois do SQL, **não** reverter o código para antes deste commit sem recriar o
    índice.
+
+## Produção (`1b82530`, deploy confirmado pelo status do GitHub)
+| Caso | Resultado |
+| --- | --- |
+| Webhook com instância inexistente | 200, ignorado (nada gravado) |
+| `POST /api/whatsapp/jobs` / `POST /api/whatsapp/sync` sem login | 503 / 401 (como antes) |
+| Smoke | idêntico, exceto 1.3, que agora mostra a mensagem que o Agadir mandou **pela tela de Chats** (`sender: human`) na conversa "Teste 409": confirma que o envio pela tela grava na mesma conversa. Nova base |
+| "Importar conversas" | precisa de login na tela: fica no roteiro do Agadir, depois do SQL |
