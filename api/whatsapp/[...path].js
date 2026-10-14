@@ -5,6 +5,7 @@ import { parseMessage } from '../_lib/whatsappParse.js';
 import { isFeatureOn } from '../_lib/features.js';
 import { acceptWebhook, applyConnectionUpdate, handleIncomingMessageLegacy, processDueEvents } from '../_lib/inbound.js';
 import { runReconcile } from '../_lib/reconcile.js';
+import { lineHealth, probe, evaluateAlerts } from '../_lib/health.js';
 import crypto from 'crypto';
 
 // Catch-all do WhatsApp. Consolida connect/send/send-media/status/sync/webhook
@@ -845,8 +846,39 @@ async function handleJobs(req, res) {
   const inbound = await processDueEvents(db, { limit: 50, deadline: t0 + 5_000 });
   // A4: reconciliação das linhas com a chave `reconcile` (nenhuma, enquanto ninguém ligar).
   const reconcile = await runReconcile(db, evo, { deadline: t0 + 8_000 });
-  console.log(`[jobs] inbound=${JSON.stringify(inbound)} reconcile=${JSON.stringify(reconcile)} em ${Date.now() - t0}ms`);
-  return res.status(200).json({ ok: true, inbound, reconcile });
+  // A5: alertas (linha: empresas com a chave health_alerts; infra: OPS_ALERTS=on).
+  let alerts;
+  try { alerts = await evaluateAlerts(db, { evoFetch: evo }); }
+  catch (e) { alerts = { error: String(e?.message || e).slice(0, 200) }; }
+  console.log(`[jobs] inbound=${JSON.stringify(inbound)} reconcile=${JSON.stringify(reconcile)} alerts=${JSON.stringify(alerts)} em ${Date.now() - t0}ms`);
+  return res.status(200).json({ ok: true, inbound, reconcile, alerts });
+}
+
+// ─── health (CF-A, A5) ───────────────────────────────────────────────────────
+// GET ?probe=1 → para o monitor externo, sem login: 200 { ok: true } ou 503 { ok: false,
+//   failing: ['database'|'evolution'] }. Nenhum dado da empresa.
+// GET (admin logado) → saúde da linha da própria empresa, só com a chave `health` ligada
+//   (desligada → 404 feature_off, e a tela esconde a aba).
+let probeCache = { at: 0, r: null };
+async function handleHealth(req, res) {
+  if (req.method !== 'GET') return res.status(405).end();
+  const db = adminClient();
+  if (req.query?.probe === '1') {
+    // Sem login: cache de 30 s por instância da função (ninguém martela a Evolution por aqui).
+    if (Date.now() - probeCache.at > 30_000) probeCache = { at: Date.now(), r: await probe(db, evo) };
+    return res.status(probeCache.r.ok ? 200 : 503).json(probeCache.r);
+  }
+  const who = await resolveUser(req.headers.authorization);
+  if (!who) return res.status(401).json({ error: 'Unauthorized' });
+  const { data: prof } = await db.from('user_profiles').select('role').eq('id', who.userId).maybeSingle();
+  if (prof?.role !== 'admin') return res.status(403).json({ error: 'Sem permissão' });
+  if (!(await isFeatureOn(who.companyId, 'health', db))) return res.status(404).json({ error: 'feature_off' });
+  try {
+    return res.status(200).json(await lineHealth(db, who.companyId, { evoFetch: evo }));
+  } catch (e) {
+    console.error('[health] falhou:', e?.message || e);
+    return res.status(503).json({ error: 'health_unavailable' });
+  }
 }
 
 // ─── roteador ───────────────────────────────────────────────────────────────
@@ -870,6 +902,7 @@ export default async function handler(req, res) {
     'media': handleMedia,
     'webhook': handleWebhook,
     'jobs': handleJobs,
+    'health': handleHealth,
     'groups': handleGroups,
     '': handleGroups, // /api/whatsapp → GET lista grupos (fallback amigável)
   };

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { permissionsStore, ROLE_LABELS, DEFAULT_PERMISSIONS, auth } from '../lib/auth';
-import { RotateCcw, ShieldCheck, Smartphone, Wifi, WifiOff, Loader2, RefreshCw, Webhook, Copy, Check, KeyRound } from 'lucide-react';
+import { RotateCcw, ShieldCheck, Smartphone, Wifi, WifiOff, Loader2, RefreshCw, Webhook, Copy, Check, KeyRound, Activity } from 'lucide-react';
+import HealthPanel from '../components/HealthPanel';
 import { supabase } from '../lib/supabase';
 import { db } from '../lib/store';
 import QRCode from 'react-qrcode-logo';
@@ -106,6 +107,24 @@ export default function Settings() {
 
   useEffect(() => { fetchWaStatus(); }, []);
 
+  // Saúde da linha (CF-A · A5). 404 feature_off / 403 → sem aba (health fica null).
+  const [health, setHealth] = useState(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+  async function loadHealth() {
+    setHealthLoading(true);
+    try {
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      const res = await fetch('/api/whatsapp/health', { headers: { 'Authorization': `Bearer ${token}` } });
+      // Chave desligada/sem permissão (404/403) → sem aba. Outra falha no "Atualizar" mantém
+      // o último dado na tela em vez de apagá-la.
+      if (res.ok) setHealth(await res.json());
+      else if (res.status === 404 || res.status === 403) setHealth(null);
+    } catch { /* mantém o último dado */ }
+    setHealthLoading(false);
+  }
+  useEffect(() => { if (isAdmin) loadHealth(); }, [isAdmin]);
+
   async function connectWhatsApp() {
     setWaLoading(true);
     setWaQr(null);
@@ -201,7 +220,20 @@ export default function Settings() {
             ${waTab === 'integrations' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
           <Webhook className="w-4 h-4" /> Integrações
         </button>
+        {health && (
+          <button onClick={() => setWaTab('health')}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border flex items-center gap-2
+              ${waTab === 'health' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+            <Activity className="w-4 h-4" /> Saúde
+            {health.alerts?.length > 0 && <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />}
+          </button>
+        )}
       </div>
+
+      {/* Tab Saúde (CF-A · A5): só aparece com a chave `health` da empresa ligada */}
+      {waTab === 'health' && health && (
+        <HealthPanel data={health} loading={healthLoading} onRefresh={loadHealth} />
+      )}
 
       {/* Tab Integrações */}
       {waTab === 'integrations' && (
