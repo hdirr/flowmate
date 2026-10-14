@@ -59,3 +59,15 @@ código já está pronto para quando o SQL tirar o índice.
 | `POST /api/whatsapp/jobs` / `POST /api/whatsapp/sync` sem login | 503 / 401 (como antes) |
 | Smoke | idêntico, exceto 1.3, que agora mostra a mensagem que o Agadir mandou **pela tela de Chats** (`sender: human`) na conversa "Teste 409": confirma que o envio pela tela grava na mesma conversa. Nova base |
 | "Importar conversas" | precisa de login na tela: fica no roteiro do Agadir, depois do SQL |
+
+## Concluída (Agadir, 14/10)
+SQL `supabase_cf_a2_drop_global.sql` rodado em produção:
+- **Antes:** chave por empresa válida e única (1), chave global existia (1), repetidos na
+  empresa 0.
+- **`drop index whatsapp_messages_message_id_idx`:** sem erro.
+- **Depois (C4):** só `whatsapp_messages_company_message_uniq` existe.
+- **"Importar conversas"** na tela: importou normalmente e as conversas continuam lá.
+
+**Chave global removida; isolamento de mensagens por empresa ativo.** Os recursos "linha a
+linha" (sync, reconciliação) e a conferência do 23505 da caixa de entrada continuam no código,
+inofensivos; podem sair numa limpeza futura.
