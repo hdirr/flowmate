@@ -101,3 +101,12 @@ Primeiro teste: um envio pela tela para o número dele → `outbound_messages` c
   (pouco provável; o envio automático não sofre isso porque cai na pausa).
 - **"Executar agora" e automações da tela** continuam ignorando o resultado do envio (Parte 2,
   bloco 16).
+
+## Produção (`dc7a691`, deploy confirmado pelo status do GitHub)
+| Caso | Resultado |
+| --- | --- |
+| `GET /v1/outbound-messages/{uuid inexistente}` | 404 `outbound_not_found` |
+| id que não é UUID / sem chave / `POST` | 404 / 401 / 405 |
+| `GET /api/whatsapp/health?probe=1` | 200 |
+| `POST /api/whatsapp/jobs` (sem `JOBS_SECRET`) | 503 |
+| Smoke | idêntico (a fila está desligada: envio igual ao de antes) |
