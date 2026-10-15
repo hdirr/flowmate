@@ -1,6 +1,7 @@
 import { getOrCreateConversation, setConversationState, isKnownOutgoing, STATE } from './conversations.js';
 import { dispatchWebhook } from './webhooks.js';
 import { parseMessage } from './whatsappParse.js';
+import { matchEcho } from './outbound.js';
 
 // Recebimento de mensagens da Evolution (webhook). Dois caminhos:
 //
@@ -75,7 +76,10 @@ export async function handleIncomingMessageLegacy(db, { companyId, instanceName,
   //    pelo WhatsApp do celular (é o que ela sempre fez) e a automação atropela.
   //    Em GRUPOS isso é ignorado (decisão de produto: grupos não pausam).
   if (!isGroup && fromMe && !alreadyLogged) {
-    const known = await isKnownOutgoing(messageId, companyId, db);
+    // CF-A · A6: também é envio do FlowMate se casar com a fila de envio (mesmo message_id, ou
+    // eco que chegou antes de o envio ser gravado). Sem fila (chave desligada) não há linhas lá.
+    const known = await isKnownOutgoing(messageId, companyId, db)
+      || !!(await matchEcho(db, { companyId, remoteJid, messageId, content }))?.matched;
     if (!known && !conversation) {
       console.error(`[webhook] resposta pelo celular sem conversa legível (jid=${remoteJid}); pausa não gravada`);
     } else if (!known && conversation.state !== STATE.HUMAN) {
@@ -175,7 +179,8 @@ export async function processIncomingMessage(db, { companyId, instanceName, msg,
   //    Reprocessada tarde (ex.: 30 min depois) NÃO desfaz um "devolver para automação" feito
   //    depois da mensagem: só pausa se a mensagem for mais nova que a última troca de estado.
   if (!isGroup && fromMe) {
-    const known = await isFlowmateOutgoing(db, companyId, messageId);
+    const known = await isFlowmateOutgoing(db, companyId, messageId)
+      || !!(await matchEcho(db, { companyId, remoteJid, messageId, content }))?.matched;  // A6
     if (!known && conversation.state !== STATE.HUMAN && !resumedAfter(conversation, timestamp)) {
       const r = await setConversationState(conversation.id, STATE.HUMAN, null, null, db);
       if (r?.error) throw new Error(`pausa não gravada: ${r.error.message}`);

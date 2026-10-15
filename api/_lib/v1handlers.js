@@ -1,4 +1,5 @@
 import { adminClient, jidFor, twinJid } from './db.js';
+import { readIdempotencyKey, queueFields } from './v1/http.js';
 import { sendMessage } from './sendMessage.js';
 import { dispatchWebhook } from './webhooks.js';
 
@@ -288,21 +289,28 @@ export async function handleMessages(req, res, companyId) {
   if (!to) return res.status(400).json({ error: 'missing_to' });
   if (!content && !media) return res.status(400).json({ error: 'missing_content' });
 
+  // CF-A · A6: Idempotency-Key opcional (só vale com a fila de envio ligada).
+  const idempotencyKey = readIdempotencyKey(req);
+
   const result = await sendMessage({
-    companyId, to, content, media: media || null, sender: 'automation',
+    companyId, to, content, media: media || null, sender: 'automation', idempotencyKey,
   });
 
   if (result.error) {
     return res.status(result.status || 400).json({
       error: result.error,
+      ...(result.message ? { message: result.message } : {}),
       conversation_id: result.conversationId || null,
+      ...queueFields(result),
     });
   }
 
-  return res.status(200).json({
+  // 202 = aceito pela fila, ainda não entregue (a Evolution estava fora; vai tentar de novo).
+  return res.status(result.queued ? 202 : 200).json({
     ok: true,
-    message_id: result.messageId,
+    message_id: result.messageId ?? null,
     conversation_id: result.conversationId,
+    ...queueFields(result),
   });
 }
 

@@ -1,5 +1,6 @@
 import { adminClient } from '../db.js';
-import { fail } from './http.js';
+import { fail, isUuid } from './http.js';
+import { toOutbound } from '../outbound.js';
 
 // Objeto Mensagem do contrato (20-contrato-api-v1.md), comum às rotas de leitura de mensagens
 // (P1-L7 last_message, P1-L8, P1-L9). No banco a coluna do tipo é message_type.
@@ -51,5 +52,22 @@ export async function getMessage(req, res, { companyId, params }) {
   } catch (e) {
     console.error('[v1] message falhou:', e?.message || e);
     return fail(res, 500, 'internal_error', 'Erro ao consultar a mensagem.');
+  }
+}
+
+// GET /v1/outbound-messages/{id} — status de um envio da fila (CF-A · A6): sending | sent |
+// pending (vai tentar de novo) | failed | dead. Só da empresa da chave (outra → 404).
+export async function getOutboundMessage(req, res, { companyId, params }) {
+  const notFound = () => fail(res, 404, 'outbound_not_found', 'Envio não encontrado.');
+  if (!isUuid(params.id)) return notFound();
+  try {
+    const { data, error } = await adminClient().from('outbound_messages').select('*')
+      .eq('company_id', companyId).eq('id', params.id).maybeSingle();
+    if (error) throw error;
+    if (!data) return notFound();
+    return res.status(200).json(toOutbound(data));
+  } catch (e) {
+    console.error('[v1] outbound falhou:', e?.message || e);
+    return fail(res, 500, 'internal_error', 'Erro ao consultar o envio.');
   }
 }

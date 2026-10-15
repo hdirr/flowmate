@@ -189,6 +189,15 @@ return [{ json: JSON.parse(rawBody) }];
 ```
 O mesmo exemplo aparece na tela de Integrações, já com o seu segredo.
 
+## 5b. Fila de envio (quando for ligada na sua empresa; você será avisado)
+- **Mande o header `Idempotency-Key`** (ex.: o id da execução do n8n + o da mensagem). Se o n8n
+  repetir a chamada, o FlowMate devolve o resultado da primeira e **não envia de novo**.
+- **202 `delivery: "pending"`:** aceito, ainda não entregue (o WhatsApp estava fora). O FlowMate
+  tenta de novo por até 10 min. **Não reenvie.** Acompanhe em
+  `GET /outbound-messages/{outbound_id}`.
+- **502 `delivery: "failed"`:** não saiu, ou não dá para saber se saiu. Não é reenviada
+  automaticamente.
+
 ## 6. Regras de ouro
 1. **409 `conversation_paused` é esperado:** um humano assumiu a conversa. Não reenvie.
 2. **Deduplique por `event_id`.** O mesmo evento pode chegar duas vezes.

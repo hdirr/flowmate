@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveUser, adminClient, instanceNameFor, toWhatsAppNumber, jidFor } from '../_lib/db.js';
-import { sendMessage } from '../_lib/sendMessage.js';
+import { sendMessage, retryOutbound } from '../_lib/sendMessage.js';
 import { parseMessage } from '../_lib/whatsappParse.js';
 import { isFeatureOn } from '../_lib/features.js';
 import { acceptWebhook, applyConnectionUpdate, handleIncomingMessageLegacy, processDueEvents } from '../_lib/inbound.js';
@@ -843,15 +843,19 @@ async function handleJobs(req, res) {
   const t0 = Date.now();
   const db = adminClient();
   // Prazo curto: o limite da função no plano da Vercel está "a confirmar" (vercel.json sem maxDuration).
-  const inbound = await processDueEvents(db, { limit: 50, deadline: t0 + 5_000 });
+  const inbound = await processDueEvents(db, { limit: 50, deadline: t0 + 4_000 });
+  // A6: reenvio da fila de envio (só há linhas com a chave send_queue ligada).
+  let outbound;
+  try { outbound = await retryOutbound(db, { deadline: t0 + 6_000 }); }
+  catch (e) { outbound = { error: String(e?.message || e).slice(0, 200) }; }
   // A4: reconciliação das linhas com a chave `reconcile` (nenhuma, enquanto ninguém ligar).
   const reconcile = await runReconcile(db, evo, { deadline: t0 + 8_000 });
   // A5: alertas (linha: empresas com a chave health_alerts; infra: OPS_ALERTS=on).
   let alerts;
   try { alerts = await evaluateAlerts(db, { evoFetch: evo }); }
   catch (e) { alerts = { error: String(e?.message || e).slice(0, 200) }; }
-  console.log(`[jobs] inbound=${JSON.stringify(inbound)} reconcile=${JSON.stringify(reconcile)} alerts=${JSON.stringify(alerts)} em ${Date.now() - t0}ms`);
-  return res.status(200).json({ ok: true, inbound, reconcile, alerts });
+  console.log(`[jobs] inbound=${JSON.stringify(inbound)} reconcile=${JSON.stringify(reconcile)} outbound=${JSON.stringify(outbound)} alerts=${JSON.stringify(alerts)} em ${Date.now() - t0}ms`);
+  return res.status(200).json({ ok: true, inbound, outbound, reconcile, alerts });
 }
 
 // ─── health (CF-A, A5) ───────────────────────────────────────────────────────

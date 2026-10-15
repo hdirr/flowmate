@@ -81,6 +81,19 @@ export function isUuid(value) {
   return typeof value === 'string' && UUID_RE.test(value);
 }
 
+// CF-A · A6 — header Idempotency-Key (opcional) dos envios, cru. Quem valida é o sendMessage,
+// e só com a fila de envio ligada (desligada: o header é ignorado, como sempre foi).
+export function readIdempotencyKey(req) {
+  const raw = req.headers?.['idempotency-key'];
+  if (raw === undefined || raw === '') return null;
+  return String(Array.isArray(raw) ? raw[0] : raw).trim();
+}
+
+// Campos da fila de envio na resposta (só existem com a fila ligada; desligada = resposta igual).
+export function queueFields(result) {
+  return result?.outboundId ? { outbound_id: result.outboundId, delivery: result.delivery, ...(result.duplicate ? { duplicate: true } : {}) } : {};
+}
+
 // metadata (P1-E1): objeto JSON livre do contato/lead, só da API. Merge: chave com valor null
 // é removida; as outras são sobrescritas; chaves não enviadas ficam. Limite: 50 chaves e 16 KB
 // serializado (400 metadata_too_large). Fora de objeto → 400 invalid_field.

@@ -401,6 +401,33 @@ conversa está em humano. Usa o `remote_jid` da conversa (funciona para grupo). 
     - `502` vindo da Evolution (`delivery_failed` ou a mensagem dela).
   - **Evento:** o mesmo `message.sent` do `POST /v1/messages` (`sender: "automation"`).
 
+### Fila de envio (CF-A · A6) — só com a chave `send_queue` ligada na empresa
+Vale para `POST /v1/messages` e `POST /v1/conversations/{id}/messages`. Com a fila desligada, as
+respostas são as de sempre, sem os campos abaixo.
+- **Header `Idempotency-Key`** (opcional):
+  - 1 a 128 caracteres visíveis; senão `400 invalid_field` (só com a fila ligada; desligada, o
+    header é ignorado, como sempre foi);
+  - a mesma chave na mesma empresa devolve o resultado do primeiro envio (`duplicate: true`) e
+    **não envia de novo**, mesmo que a conversa tenha sido pausada depois.
+- **Respostas:**
+  - `200 { ok, message_id, conversation_id, outbound_id, delivery: "sent" }`: entregue à Evolution.
+  - **`202 { ok, message_id: null, conversation_id, outbound_id, delivery: "pending" }`**: a
+    Evolution estava fora, com certeza de que não recebeu o pedido. O FlowMate tenta de novo:
+    - esperas de 15 s, 30 s, 60 s e 120 s, até 5 tentativas;
+    - confere a pausa antes de cada tentativa;
+    - **desiste depois de 10 min** (`dead`).
+  - `502 { error, conversation_id, outbound_id, delivery: "failed" }`: recusada ou **ambígua**
+    (tempo esgotado, erro 5xx: pode ter saído). **Não é reenviada**, para nunca duplicar.
+  - `503 queue_unavailable`: não deu para registrar o envio; nada foi enviado.
+  - Repetição com a mesma chave de um envio **ainda em andamento** → `202` com
+    `delivery: "sending"`.
+- **`GET /v1/outbound-messages/{id}`:**
+  - resposta: `{ id, status, attempts, last_error, message_id, conversation_id, remote_jid,
+    sender, created_at, sent_at }`;
+  - `status`: `sending` | `sent` | `pending` | `failed` | `dead`;
+  - outra empresa ou id que não é UUID → `404 outbound_not_found`.
+- O eco do envio (`fromMe`) casa com a fila e não pausa a conversa por engano.
+
 ---
 
 ## Eventos novos (payload de `data`)

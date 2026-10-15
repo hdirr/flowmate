@@ -76,3 +76,12 @@ O que roda sem chave é só o `probe`, só leitura. **SQL:** já aplicado (`ops_
    variáveis.
 6. **Monitor externo:** apontar para
    `https://flowmate-ashy.vercel.app/api/whatsapp/health?probe=1` (esperado 200).
+
+## Produção (`366dbd3`, deploy confirmado pelo status do GitHub)
+| Caso | Resultado |
+| --- | --- |
+| `GET /api/whatsapp/health?probe=1` | **200** `{ ok: true, failing: [] }` (banco e Evolution respondendo) |
+| `GET /api/whatsapp/health` sem login | 401 |
+| `POST /api/whatsapp/health` | 405 |
+| `POST /api/whatsapp/jobs` (sem `JOBS_SECRET`) | 503 |
+| Smoke | idêntico |

@@ -448,6 +448,28 @@ export default function Chats() {
     return () => clearInterval(t);
   }, [selected?.phone, selected?.isGroup, loadConvState]);
 
+  // CF-A · A6: envios da fila ainda não entregues (pendente / falhou) da conversa aberta, nas
+  // últimas 24 h. Leitura pela RLS (só a própria empresa). O envio pela tela grava o JID do
+  // número normalizado, que pode ser diferente do JID da conversa (gêmea): busca os dois.
+  const [outboxIssues, setOutboxIssues] = useState([]);
+  useEffect(() => {
+    setOutboxIssues([]);
+    if (!selected?.jid) return;
+    const jids = [...new Set([selected.jid, !selected.isGroup && selected.phone ? `${selected.phone}@s.whatsapp.net` : null].filter(Boolean))];
+    let alive = true;
+    async function loadOutbox() {
+      const since = new Date(Date.now() - 86400000).toISOString();
+      const { data, error } = await supabase.from('outbound_messages')
+        .select('id, status, content, last_error, created_at')
+        .in('remote_jid', jids).in('status', ['sending', 'pending', 'failed', 'dead'])
+        .gte('created_at', since).order('created_at', { ascending: true }).limit(10);
+      if (alive && !error) setOutboxIssues(data || []);
+    }
+    loadOutbox();
+    const t = setInterval(() => { if (!document.hidden) loadOutbox(); }, 10000);
+    return () => { alive = false; clearInterval(t); };
+  }, [selected?.jid, selected?.phone, selected?.isGroup]);
+
   async function syncMessages() {
     setSyncing(true);
     try { await runSyncCore(); } finally { setSyncing(false); }
@@ -881,6 +903,24 @@ export default function Chats() {
             );})}
             <div ref={bottomRef} />
           </div>
+
+          {/* CF-A · A6: envios da fila que ainda não saíram (pendente / falhou). Sem a fila
+              ligada não há linhas e nada aparece. */}
+          {outboxIssues.length > 0 && (
+            <div className="bg-amber-50 border-t border-amber-200 px-3 py-2 space-y-1">
+              {outboxIssues.map(o => (
+                <div key={o.id} className="flex items-start gap-2 text-xs">
+                  <span className={`shrink-0 font-medium ${o.status === 'failed' || o.status === 'dead' ? 'text-red-600' : 'text-amber-700'}`}>
+                    {o.status === 'sending' ? 'Enviando…' : o.status === 'pending' ? 'Tentando de novo…' : 'Não enviada'}
+                  </span>
+                  <span className="text-gray-600 truncate">{o.content || '[mídia]'}</span>
+                  {(o.status === 'failed' || o.status === 'dead') && o.last_error && (
+                    <span className="text-gray-400 truncate" title={o.last_error}>· {o.last_error}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
           {canSend && (
             <div className="bg-white border-t border-gray-100 p-3 flex gap-2 items-center">

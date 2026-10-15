@@ -1,6 +1,8 @@
 import { adminClient, instanceNameFor, toWhatsAppNumber } from './db.js';
 import { getOrCreateConversation, setConversationState, findTwinConversation, STATE } from './conversations.js';
 import { dispatchWebhook } from './webhooks.js';
+import { isFeatureOn } from './features.js';
+import { deliver, findByIdempotencyKey, processOutbound, outboundRetryDelaySeconds, MAX_ATTEMPTS as OUT_MAX_ATTEMPTS, AMBIGUOUS_PREFIX } from './outbound.js';
 
 const EVOLUTION_URL = process.env.EVOLUTION_API_URL;
 const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY;
@@ -32,7 +34,7 @@ export async function findPausedConversation(admin, companyId, conversation, rem
  *        | {{ error: 'conversation_paused', status: 409 }}
  *        | {{ error: string, status: number }}
  */
-export async function sendMessage({ companyId, to, sender, actorUserId = null, content, media = null }) {
+export async function sendMessage({ companyId, to, sender, actorUserId = null, content, media = null, idempotencyKey = null }) {
   if (!companyId || !to || (!content && !media)) {
     return { error: 'invalid_request', status: 400 };
   }
@@ -52,6 +54,19 @@ export async function sendMessage({ companyId, to, sender, actorUserId = null, c
   const remoteJid = isGroup ? number : `${number}@s.whatsapp.net`;
   const instanceName = instanceNameFor(companyId);
 
+  // CF-A · A6: fila de envio (chave send_queue). Repetição com a mesma Idempotency-Key devolve o
+  // resultado do primeiro envio, sem enviar de novo (antes até da checagem de pausa).
+  const queueOn = await isFeatureOn(companyId, 'send_queue', admin);
+  // Fila desligada: o header é ignorado (como antes). Ligada: precisa ser válido.
+  if (!queueOn) idempotencyKey = null;
+  else if (idempotencyKey !== null && !/^[\x21-\x7E]{1,128}$/.test(idempotencyKey)) {
+    return { error: 'invalid_field', message: '"Idempotency-Key": de 1 a 128 caracteres visíveis, sem espaço.', status: 400 };
+  }
+  if (queueOn && idempotencyKey) {
+    const prev = await findByIdempotencyKey(admin, companyId, idempotencyKey).catch(() => null);
+    if (prev) return fromOutboundRow(prev, { duplicate: true });
+  }
+
   const conversation = await getOrCreateConversation(companyId, remoteJid);
 
   // ─── O CORAÇÃO ───
@@ -68,6 +83,10 @@ export async function sendMessage({ companyId, to, sender, actorUserId = null, c
   // Sem conversa (leitura/criação falhou) não há onde registrar nem como saber o estado:
   // não envia (envio humano e grupo; o automático em 1:1 já parou no 409 acima).
   if (!conversation) return { error: 'conversation_unavailable', status: 503 };
+
+  if (queueOn) {
+    return sendQueued(admin, { companyId, instanceName, conversation, remoteJid, number, isGroup, sender, actorUserId, content, media, idempotencyKey });
+  }
 
   // ─── Entrega via Evolution ───
   let evoRes;
@@ -102,6 +121,13 @@ export async function sendMessage({ companyId, to, sender, actorUserId = null, c
   const evoData = await evoRes.json().catch(() => ({}));
   const messageId = evoData?.key?.id || null;
 
+  await finishSent(admin, { companyId, conversation, instanceName, remoteJid, number, isGroup, sender, actorUserId, content, media, messageId });
+  return { ok: true, messageId, conversationId: conversation.id };
+}
+
+// Depois que a Evolution aceitou: grava no log, faz a transição humano e espelha no webhook.
+// (Mesmo código de antes da A6; usado pelo envio direto e pela fila.)
+async function finishSent(admin, { companyId, conversation, instanceName, remoteJid, number, isGroup, sender, actorUserId, content, media, messageId }) {
   // ─── Grava no log ───
   await admin.from('whatsapp_messages').insert({
     company_id: companyId,
@@ -143,5 +169,94 @@ export async function sendMessage({ companyId, to, sender, actorUserId = null, c
     timestamp: Math.floor(Date.now() / 1000),
   });
 
-  return { ok: true, messageId, conversationId: conversation.id };
 }
+
+
+// ─── CF-A · A6: fila de envio ────────────────────────────────────────────────
+
+// Resultado para quem chamou, a partir da linha da fila.
+function fromOutboundRow(row, extra = {}) {
+  const base = { outboundId: row.id, delivery: row.status, conversationId: row.conversation_id, ...extra };
+  if (row.status === 'sent') return { ok: true, messageId: row.message_id, ...base };
+  if (row.status === 'pending' || row.status === 'sending') return { ok: true, queued: true, status: 202, ...base };
+  return { error: row.last_error || 'delivery_failed', status: 502, ...base };
+}
+
+async function sendQueued(admin, ctx, deliverImpl) {
+  const { companyId, instanceName, conversation, remoteJid, sender, actorUserId, content, media, idempotencyKey } = ctx;
+  const { data: row, error } = await admin.from('outbound_messages').insert({
+    company_id: companyId, instance_name: instanceName, conversation_id: conversation.id,
+    remote_jid: remoteJid, sender, actor_user_id: actorUserId, content: content || null, media: media || null,
+    idempotency_key: idempotencyKey || null, status: 'sending', attempts: 1,
+  }).select('*').single();
+  if (error) {
+    if (error.code === '23505' && idempotencyKey) {   // corrida com a mesma chave
+      const prev = await findByIdempotencyKey(admin, companyId, idempotencyKey).catch(() => null);
+      if (prev) return fromOutboundRow(prev, { duplicate: true });
+    }
+    console.error('[send-queue] não registrou o envio:', error.message);
+    return { error: 'queue_unavailable', status: 503 };   // nada foi enviado
+  }
+  return attemptDelivery(admin, row, ctx, deliverImpl);
+}
+
+// Uma tentativa de entrega da linha (já marcada 'sending'). deliverImpl injetável (teste).
+async function attemptDelivery(admin, row, ctx, deliverImpl = deliver) {
+  const r = await deliverImpl({
+    evolutionUrl: EVOLUTION_URL, evolutionKey: EVOLUTION_KEY, instanceName: ctx.instanceName,
+    number: ctx.number, content: ctx.content, media: ctx.media,
+    ...(ctx.timeoutMs ? { timeoutMs: ctx.timeoutMs } : {}),
+  });
+  if (r.kind === 'sent') {
+    await admin.from('outbound_messages').update({ status: 'sent', message_id: r.messageId, sent_at: new Date().toISOString(), last_error: null }).eq('id', row.id);
+    await finishSent(admin, { ...ctx, messageId: r.messageId });
+    return { ok: true, messageId: r.messageId, conversationId: ctx.conversation.id, outboundId: row.id, delivery: 'sent', kind: 'sent' };
+  }
+  if (r.kind === 'retry') {
+    const dead = row.attempts >= OUT_MAX_ATTEMPTS;
+    await admin.from('outbound_messages').update({
+      status: dead ? 'dead' : 'pending', last_error: r.error,
+      next_attempt_at: new Date(Date.now() + outboundRetryDelaySeconds(row.attempts) * 1000).toISOString(),
+    }).eq('id', row.id);
+    if (dead) return { error: r.error, status: 502, conversationId: ctx.conversation.id, outboundId: row.id, delivery: 'dead', kind: 'retry' };
+    return { ok: true, queued: true, status: 202, conversationId: ctx.conversation.id, outboundId: row.id, delivery: 'pending', kind: 'retry' };
+  }
+  await admin.from('outbound_messages').update({ status: 'failed', last_error: (r.ambiguous ? AMBIGUOUS_PREFIX : '') + r.error }).eq('id', row.id);
+  return { error: r.error, status: 502, conversationId: ctx.conversation.id, outboundId: row.id, delivery: 'failed', kind: 'failed' };
+}
+
+// Processador (/jobs): reenvia os pendentes, conferindo a pausa de novo.
+export async function retryOutbound(admin, { deadline, deliverImpl } = {}) {
+  const loadConv = async (row) => {
+    const { data } = await admin.from('conversations').select('*')
+      .eq('company_id', row.company_id).eq('id', row.conversation_id).maybeSingle();
+    return data || null;
+  };
+  return processOutbound(admin, {
+    deadline,
+    checkPaused: async (row) => {
+      if (String(row.remote_jid).includes('@g.us')) return false;
+      return !!(await findPausedConversation(admin, row.company_id, await loadConv(row), row.remote_jid));
+    },
+    send: async (row) => {
+      const isGroup = String(row.remote_jid).includes('@g.us');
+      const conv = await loadConv(row);
+      if (!conv) {
+        await admin.from('outbound_messages').update({ status: 'failed', last_error: 'conversa não encontrada' }).eq('id', row.id);
+        return { kind: 'failed' };
+      }
+      const attempts = row.attempts + 1;
+      await admin.from('outbound_messages').update({ attempts, next_attempt_at: new Date().toISOString() }).eq('id', row.id);
+      // O JID da conversa já é o número internacional: vai com "+" (sem renormalizar).
+      const number = isGroup ? row.remote_jid : row.remote_jid.replace(/@.*/, '');
+      return attemptDelivery(admin, { ...row, attempts }, {
+        companyId: row.company_id, instanceName: row.instance_name, conversation: conv, remoteJid: row.remote_jid,
+        number, isGroup, sender: row.sender, actorUserId: row.actor_user_id, content: row.content, media: row.media,
+        timeoutMs: 5_000,   // o processador tem prazo curto
+      }, deliverImpl);
+    },
+  });
+}
+
+// Só para teste.
+export const _test = { attemptDelivery, fromOutboundRow, sendQueued };

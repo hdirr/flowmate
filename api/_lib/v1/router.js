@@ -10,7 +10,7 @@ import { listPipelines } from './pipelines.js';
 import { listLeads, getLead, listLeadNotes, updateLead, createLeadNote } from './leads.js';
 import { listContacts, updateContactTags, createContact } from './contacts.js';
 import { listUsers } from './users.js';
-import { getMessage } from './messages.js';
+import { getMessage, getOutboundMessage } from './messages.js';
 import { listWebhookEvents } from './webhookEvents.js';
 import { listConversations, getConversation, listConversationMessages, updateConversation, sendConversationMessage } from './conversations.js';
 
@@ -28,6 +28,7 @@ export const ROUTES = [
   { method: 'PATCH', pattern: 'conversations/:id', handler: updateConversation }, // P1-E6
   { method: 'GET', pattern: 'conversations/:id/messages', handler: listConversationMessages }, // P1-L8
   { method: 'POST', pattern: 'conversations/:id/messages', handler: sendConversationMessage }, // P1-E7
+  { method: 'GET', pattern: 'outbound-messages/:id', handler: getOutboundMessage }, // CF-A · A6
   { method: 'GET', pattern: 'messages/:id', handler: getMessage }, // P1-L9 (GET/POST /v1/messages antigos seguem no switch)
   { method: 'GET', pattern: 'webhook-events', handler: listWebhookEvents }, // P1-L10
   { method: 'GET', pattern: 'contacts', handler: listContacts },

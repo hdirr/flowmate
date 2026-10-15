@@ -1,5 +1,5 @@
 import { adminClient } from '../db.js';
-import { V1Error, fail, readPaging, paged, readDate, isUuid, queryParam, isRangeBeyondEnd } from './http.js';
+import { V1Error, fail, readPaging, paged, readDate, isUuid, queryParam, isRangeBeyondEnd, readIdempotencyKey, queueFields } from './http.js';
 import { MESSAGE_COLS, toMessage } from './messages.js';
 import { setConversationState, resumeAutomation } from '../conversations.js';
 import { sendMessage } from '../sendMessage.js';
@@ -210,16 +210,18 @@ export async function sendConversationMessage(req, res, { companyId, params }) {
   }
 
   const to = isGroup ? jid : `+${jid.replace(/@.*/, '')}`;
-  const result = await sendMessage({ companyId, to, content, media, sender: 'automation' });
+  const idempotencyKey = readIdempotencyKey(req);  // CF-A · A6 (validada no sendMessage, só com a fila)
+  const result = await sendMessage({ companyId, to, content, media, sender: 'automation', idempotencyKey });
   if (result.error) {
     const status = result.status || 400;
     return res.status(status).json({
       error: result.error,
-      message: status === 409 ? 'A conversa está com um humano. Nada foi enviado.' : 'Não foi possível enviar.',
+      message: result.message || (status === 409 ? 'A conversa está com um humano. Nada foi enviado.' : 'Não foi possível enviar.'),
       conversation_id: result.conversationId || c.id,
+      ...queueFields(result),
     });
   }
-  return res.status(200).json({ ok: true, message_id: result.messageId, conversation_id: result.conversationId });
+  return res.status(result.queued ? 202 : 200).json({ ok: true, message_id: result.messageId ?? null, conversation_id: result.conversationId, ...queueFields(result) });
 }
 
 // GET /v1/conversations — lista paginada de Conversa. Filtros: state, type, contactId,
