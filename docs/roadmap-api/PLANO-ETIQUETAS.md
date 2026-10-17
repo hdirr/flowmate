@@ -1,6 +1,8 @@
 # Plano — Etiquetas (a trava de conversa vira etiqueta)
 
-> **Desenho, ainda não implementado.** Pedido do Agadir em 2026-10-13.
+> **Status (2026-10-17):** ET-0 (SQL, CF-A PARTE 6) aplicada; **ET-2 e ET-4 no ar atrás da chave
+> `labels` desligada** (`relatorios/ET-2-ET-4.md`). Falta: ET-3, ET-5 (`INTEGRATIONS.md`) e ET-B.
+> Pedido do Agadir em 2026-10-13.
 >
 > **Onde entra no `PLANO-CONFIABILIDADE.md`:**
 > - **ET-0 (SQL):** no arquivo único da CF-A (`supabase_cf_a.sql`).

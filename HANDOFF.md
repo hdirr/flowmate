@@ -2,9 +2,11 @@
 
 > Documento vivo pra retomar o projeto em sessão nova, com contexto zerado.
 > **Sem segredos aqui** — chaves ficam nas env vars do Vercel / painéis.
-> Última atualização: 2026-10-13.
+> Última atualização: 2026-10-17.
 >
-> ## Estado atual (roteiro da API `/v1` — `docs/roadmap-api/`) — atualizado em 2026-10-13
+> ## Estado atual (roteiro da API `/v1` — `docs/roadmap-api/`) — atualizado em 2026-10-17
+> - **Etiquetas — gestão (ET-2 + ET-4, 2026-10-17): no ar, atrás da chave `labels` DESLIGADA** (`a195c9f`; relatório `relatorios/ET-2-ET-4.md`). Configurações → Etiquetas (criar/editar/excluir, sistema só cor), etiquetas no painel do contato, em Contatos e no Chats (filtro, chips, cabeçalho), `/v1/labels` + aplicar em contato/conversa, `labels` nas respostas, 5 eventos novos (`label.*`, `contact.labels_updated`, `conversation.labels_updated` com `source`). Sem SQL novo (CF-A PARTE 6). **Com a chave ligada o 409 continua** (a virada da trava é a ET-3, não feita). **Falta do Agadir:** ligar a chave só na empresa dele (SQL de uma linha no relatório) e rodar o roteiro de tela do relatório. `api/conversations/state.js` virou o catch-all `api/conversations/[...path].js` (rota `state` igual; continua 7 funções). Permissões padrão: fonte única em `api/_lib/permissions.js`.
+> - **Próximo das etiquetas:** ET-3 (envio/recebimento atrás da chave, trava opcional `block_api_send_on_human`) — antes da B2.
 > - **Confiabilidade (2026-10-13, em andamento):** `docs/roadmap-api/PLANO-CONFIABILIDADE.md` (diagnóstico + CF-A…D; etiquetas encaixadas entre CF-A e CF-B). No ar, **atrás de chaves desligadas**: A1/A3 caixa de entrada durável + `POST /api/whatsapp/jobs` (`b5827f4`), A4 reconciliação (`0886bb9`), A5 saúde/alertas/aba Saúde (`366dbd3`; chaves `health`, `health_alerts`, env `OPS_ALERTS`; probe `/api/whatsapp/health?probe=1` já responde), A6 fila de envio (chave `send_queue`; `Idempotency-Key`, 202 pendente, reenvio sem duplicar, eco sem pausa falsa, `GET /v1/outbound-messages/{id}`). **CF-A completa em código**; ligar = PARTE 7 + chaves, um passo de cada vez (condições nos relatórios CF-A1…A6). **SQL da CF-A: partes 1–6 APLICADAS em produção (13/10); as conferências (partes 0 e 8, só leitura) foram rodadas e bateram; PARTE 7 (agendador) PENDENTE**, vai junto com a janela 0 e o `JOBS_SECRET` (`relatorios/ROTEIRO-SESSAO-TUTOR-1.md`). **A2 concluída (14/10): chave global de `message_id` removida; isolamento de mensagens por empresa ativo** (`1b82530` + SQL rodado; "Importar conversas" ok). Nenhuma chave ligada.
 > - **Parte 1, código:** leitura L1–L11, escritas E1–E7, E0 e E0b, eventos W1 e W3 **prontos e no ar**. Relatórios em `docs/roadmap-api/relatorios/` (um por etapa).
 > - **Última etapa:** P1-E0b `eefaf17` — `getOrCreateConversation` nunca grava `automation` sobre conversa existente (leitura com erro → estado desconhecido → 409/503); "devolver para automação" (tela e `PATCH /v1/conversations/{id}`) retoma também a conversa gêmea (mesmo celular com/sem o 9º dígito).
@@ -41,7 +43,7 @@ O provedor do Agadir bloqueia o TLD `.co`, então TODAS as chamadas Supabase pas
 
 ## Limite crítico: Vercel Hobby = 12 serverless functions (hoje 7 arquivos, graças aos catch-alls)
 Não crie novos arquivos em `api/` sem consolidar. Rotas novas vão em catch-alls (`[...path].js`).
-Funções atuais (7 arquivos): `users`, `public/lead`, `conversations/state`, `integrations/emit`, `v1/[...path]`, `billing/[...path]`, `whatsapp/[...path]` (catch-all único, rotas: `connect`, `send`, `send-media`, `status`, `sync`, `webhook`, `groups`, `history` — os 6 arquivos antigos foram removidos).
+Funções atuais (7 arquivos): `users`, `public/lead`, `conversations/[...path]` (catch-all da tela: `state` + etiquetas), `integrations/emit`, `v1/[...path]`, `billing/[...path]`, `whatsapp/[...path]` (catch-all único, rotas: `connect`, `send`, `send-media`, `status`, `sync`, `webhook`, `groups`, `history` — os 6 arquivos antigos foram removidos).
 Compartilhados (não contam): `api/_lib/{db,conversations,sendMessage,webhooks,plans,v1handlers}.js`.
 
 ## Env vars no Vercel (nomes; valores só no painel)

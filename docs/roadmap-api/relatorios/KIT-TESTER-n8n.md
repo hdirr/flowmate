@@ -198,6 +198,41 @@ O mesmo exemplo aparece na tela de Integrações, já com o seu segredo.
 - **502 `delivery: "failed"`:** não saiu, ou não dá para saber se saiu. Não é reenviada
   automaticamente.
 
+## 5c. Etiquetas (quando a chave `labels` for ligada na sua empresa; você será avisado)
+Desligada, as rotas abaixo respondem **404 `feature_off`** e nada mais muda. Ligada:
+- **Etiquetas são só marcadores.** Ligar a chave **não** tira o 409: a trava continua sendo o
+  estado da conversa ("Atendimento humano" = `state: human`). Ver 6b.
+- **Rotas:**
+
+  | Rota | Corpo | Observações |
+  | --- | --- | --- |
+  | `GET /labels` | — | lista paginada; `?kind=user` ou `system` |
+  | `POST /labels` | `{ "name": "Retorno", "color": "#ef4444" }` | 201; nome repetido → 409 `label_exists`; cor só da paleta (abaixo) |
+  | `PATCH /labels/{id}` | `{ "name": "…", "color": "…" }` | de sistema: só a cor (nome → 422 `label_is_system`) |
+  | `DELETE /labels/{id}` | — | tira de todos os contatos/conversas; diz quantos. Sistema → 422 |
+  | `POST /contacts/{id}/labels` | `{ "labels": ["Retorno"], "operation": "InsertIfNotExists" }` | id ou nome exato; `DeleteIfExists`, `ReplaceAll`. Sistema → 422. Nome que não existe → 422 `label_not_found` + `missing` |
+  | `POST /conversations/{id}/labels` | mesmo corpo | grupo aceita só etiquetas de usuário |
+- **Cores (paleta):** `#64748b` (cinza, padrão), `#ef4444`, `#f97316`, `#f59e0b`, `#22c55e`,
+  `#14b8a6`, `#3b82f6`, `#6366f1`, `#ec4899`. Outra → 400 `invalid_color`.
+- **"Atendimento humano" e "Atendimento IA"** (sistema): sempre uma das duas em toda conversa
+  individual; nunca em contato nem em grupo; não se removem — **aplique a outra** (remover → 422
+  `system_label_required`). Aplicar "Atendimento humano" = pausar (`state: human`, 409 no envio
+  automático); "Atendimento IA" = devolver. Vale também para a gêmea (com/sem o 9º dígito).
+- **Tags continuam:** `POST /contacts/{id}/tags` funciona igual; etiqueta de contato e tag são a
+  mesma coisa (tag nova vira etiqueta cinza; renomear/excluir a etiqueta muda as `tags`).
+- **`labels`** passa a vir em `GET /contacts` (lista) e nas conversas (`GET /conversations`,
+  `GET/PATCH /conversations/{id}`), no formato `[{ id, name, color, kind }]`.
+- **Eventos** (só com a chave; na tela de Integrações aparecem só com ela ligada):
+
+  | `event` | Quando |
+  | --- | --- |
+  | `label.created` / `label.updated` / `label.deleted` | etiqueta criada, renomeada/recolorida (`changes`, `previous`), excluída (`contacts_removed`, `conversations_removed`) |
+  | `contact.labels_updated` | etiquetas do contato mudaram (`labels`, `added`, `removed`) — tela, API e `/tags` |
+  | `conversation.labels_updated` | etiquetas da conversa mudaram — `source`: `user` (tela), `api`, `phone` (respondeu pelo celular), `system` (conversa nova → "Atendimento IA") |
+
+  Todos trazem `source` e `user_id` (quem fez na tela; `null` pela API). O
+  `conversation.state_changed` e o `contact.tags_updated` continuam saindo junto.
+
 ## 6. Regras de ouro
 1. **409 `conversation_paused` é esperado:** um humano assumiu a conversa. Não reenvie.
 2. **Deduplique por `event_id`.** O mesmo evento pode chegar duas vezes.
@@ -213,8 +248,10 @@ O FlowMate vai deixar de **travar** o envio em conversa com atendente e passar a
 conversa com etiquetas, como a Helena: **"Atendimento humano"** ou **"Atendimento IA"** (sempre
 uma das duas). Quem decide se responde passa a ser **o seu fluxo do n8n**.
 
-- **Hoje nada mudou:** continua valendo o 409 `conversation_paused` e as regras acima.
-- **Quando a mudança for ligada na sua empresa** (você será avisado antes):
+- **Hoje nada mudou:** continua valendo o 409 `conversation_paused` e as regras acima. A gestão de
+  etiquetas (5c) **não** muda isso: com ela, a conversa já traz `labels` e "Atendimento humano"
+  equivale a `state: human`, mas o 409 continua.
+- **Quando a virada da trava for ligada na sua empresa** (etapa seguinte; você será avisado antes):
   - o envio pela API **não é mais recusado** por causa da etiqueta. Existe uma opção por empresa
     para manter o bloqueio, desligada por padrão;
   - a conversa passa a trazer `labels` (e continua trazendo `state`, derivado da etiqueta);

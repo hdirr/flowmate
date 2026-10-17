@@ -109,6 +109,16 @@ O FlowMate guarda só **7 dias** de mensagens; o mais antigo fica na Evolution e
 { "id": "uuid", "name": "Ana", "email": "ana@x.com", "role": "seller", "active": true }
 ```
 
+**Etiqueta** (só com a chave `labels` ligada na empresa; ver "Etiquetas")
+```json
+{ "id": "uuid", "name": "Retorno", "color": "#ef4444", "kind": "user", "system_key": null,
+  "created_at": "ISO", "updated_at": "ISO" }
+```
+`kind`: `user` (criada pela empresa) ou `system` ("Atendimento humano", `system_key: "human"`;
+"Atendimento IA", `system_key: "ai"`). Dentro de Contato, Conversa e dos eventos a etiqueta sai
+curta: `{ id, name, color, kind }`. Com a chave ligada, **Contato** (no `GET /v1/contacts` em lista) e **Conversa**
+ganham `labels: [etiqueta curta]`; desligada, as respostas são as de sempre.
+
 **Nota**
 ```json
 { "id": "uuid", "contact_id": "uuid", "text": "Ligou e pediu proposta", "auto": true,
@@ -233,6 +243,9 @@ Uma **Mensagem**, buscada pelo `message_id` do WhatsApp (o que o `POST /v1/messa
 
   Assinar um evento com `available: false` não dá erro, mas nada chega até a etapa sair.
 - **Fonte:** o catálogo `api/_lib/events.js`.
+- **`requires_feature`** (desde as etiquetas): chave da empresa sem a qual o evento nunca sai
+  (`"labels"` nos eventos de etiqueta; `null` nos demais). A tela de Integrações só mostra esses
+  eventos para a empresa com a chave ligada.
 - **É o catálogo, não a assinatura da empresa.** A assinatura é feita em Configurações →
   Integrações. Com **nenhum** evento marcado, a empresa recebe **todos**, inclusive os que
   passarem a existir depois.
@@ -428,6 +441,61 @@ respostas são as de sempre, sem os campos abaixo.
   - outra empresa ou id que não é UUID → `404 outbound_not_found`.
 - O eco do envio (`fromMe`) casa com a fila e não pausa a conversa por engano.
 
+### Etiquetas (PLANO-ETIQUETAS · ET-2) — só com a chave `labels` ligada na empresa
+Chave desligada → todas as rotas abaixo respondem **`404 feature_off`** e as demais respostas
+não mudam. Etiqueta é **só marcador**: não trava envio, recebimento nem atendimento (a única trava
+continua sendo o estado da conversa, `409 conversation_paused`).
+
+| Rota | O que faz |
+| --- | --- |
+| `GET /v1/labels` | Lista paginada (sistema primeiro, depois por nome). Filtro `kind=user|system` (outro → `400 invalid_filter`) |
+| `GET /v1/labels/{id}` | Uma **Etiqueta** |
+| `POST /v1/labels` | `{ name, color? }` → `201` Etiqueta (`kind: user`) |
+| `PATCH /v1/labels/{id}` | `{ name?, color? }` → `200` Etiqueta + `changes: ["name","color"]` |
+| `DELETE /v1/labels/{id}` | `200 { ok, id, name, contacts_removed, conversations_removed }` |
+| `POST /v1/contacts/{id}/labels` | `{ labels: [id ou nome], operation }` → `200 { ok, contact_id, labels, added, removed, tags }` |
+| `POST /v1/conversations/{id}/labels` | mesmo corpo → `200` **Conversa** (com `labels`) + `added`, `removed` |
+
+- **Nome:** 1 a 100 caracteres (pontas aparadas); único na empresa, **exato** (`VIP` ≠ `vip`,
+  como as tags) → repetido (inclusive o nome de uma de sistema) `409 label_exists`.
+- **Cor:** só a paleta (8 cores + cinza padrão `#64748b`): `#64748b`, `#ef4444`, `#f97316`,
+  `#f59e0b`, `#22c55e`, `#14b8a6`, `#3b82f6`, `#6366f1`, `#ec4899` (sem diferenciar caixa;
+  grava em minúsculas). Fora dela → `400 invalid_color`. Sem `color` → cinza.
+- **Etiquetas de sistema** ("Atendimento humano"/"Atendimento IA"): **só a cor muda**. Renomear
+  (nome diferente do atual) ou excluir → `422 label_is_system`. As automações e a pausa da
+  conversa dependem delas.
+- **Renomear/excluir** etiqueta de usuário atualiza também o array `tags` dos contatos (numa
+  transação). Excluir tira a etiqueta de todos os contatos e conversas; a resposta diz quantos.
+- **Aplicar/remover** (`operation`: `InsertIfNotExists` (padrão), `DeleteIfExists`,
+  `ReplaceAll` — os nomes da E3): `labels` com 1 a 50 ids ou nomes exatos; vazia só com
+  `ReplaceAll`. Id/nome que não existe na empresa → `422 label_not_found` com `missing: [...]`
+  (crie antes com `POST /v1/labels`; aqui nada é criado).
+  - **Contato:** só etiquetas de usuário (sistema → `422 label_is_system`). O array `tags`
+    continua sendo a fonte e fica **espelhado**: aplicar/remover escreve no array, e a E3
+    (`POST /v1/contacts/{id}/tags`, com nomes) continua igual — tag nova vira etiqueta (cinza).
+    Sai `contact.tags_updated` (como na E3) **e** `contact.labels_updated`.
+  - **Conversa:** etiquetas de usuário em qualquer conversa (inclusive grupo). Sistema:
+    - só em conversa **individual** → grupo `422 unsupported_for_group`;
+    - **exclusivas**: aplicar uma tira a outra; as duas na mesma chamada → `422
+      system_labels_exclusive`;
+    - **não se remove** (`DeleteIfExists` com uma delas → `422 system_label_required`: aplique a
+      outra); `ReplaceAll` sem nenhuma de sistema mantém a atual;
+    - aplicar uma = mudar o estado: "Atendimento humano" → `state: human` (pausa, `409` no envio
+      automático, como o `PATCH` com `state`); "Atendimento IA" → `automation`. Vale também
+      para a **gêmea** (mesmo celular com/sem o 9º dígito). Sai também `conversation.state_changed`.
+  - Nada mudou → `200` com `added: []`, `removed: []`, sem evento.
+- **`labels` nas respostas** (chave ligada): `GET /v1/contacts` (lista), `GET /v1/conversations`,
+  `GET /v1/conversations/{id}`, `PATCH /v1/conversations/{id}`. A rota antiga
+  `GET /v1/contacts?phone=|id=|external_id=` não muda (regra da Parte 1).
+- **`PATCH /v1/conversations/{id}` com `state`** continua aceito; a etiqueta de sistema acompanha
+  (o banco troca junto).
+- **Erros:** `400 invalid_body` / `invalid_name` / `invalid_color` / `invalid_labels` /
+  `invalid_operation`; `404 feature_off` / `label_not_found` / `contact_not_found` /
+  `conversation_not_found` (outra empresa ou id que não é UUID); `409 label_exists`; `422` acima.
+  Método errado em rota de etiqueta → `405` (antes de conferir a chave).
+- **Automações da tela** ("tag adicionada") não disparam por etiqueta aplicada pela API
+  (limitação conhecida da Parte 1).
+
 ---
 
 ## Eventos novos (payload de `data`)
@@ -441,4 +509,9 @@ Envelope igual ao de hoje: `{ event_id, event, data, company_id, timestamp }`, a
 | `lead.updated` | `{ lead_id, contact_id, stage_id, pipeline_id, priority, changes: [..], source: "api" }` |
 | `note.created` | `{ note_id, contact_id, lead_id, text, source: "api" }` |
 | `conversation.state_changed` | `{ conversation_id, contact_id, remote_jid, state, previous_state, changed_by, user_id }` — `changed_by`: `user` (alguém da equipe pela tela: botão ou envio), `phone` (respondeu pelo celular), `api`. `user_id`: quem pausou pela tela (envio ou botão "pausar"); `null` ao devolver para automação pelo botão, pelo celular e pela API. Só sai quando o estado muda de fato; grupos não geram o evento. (P1-W1) |
+| `label.created` | `{ label, source, user_id }` — `label` = Etiqueta completa. Só com a chave `labels` (vale para os 5 eventos de etiqueta). |
+| `label.updated` | `{ label, changes: ["name","color"], previous: { name, color }, source, user_id }` |
+| `label.deleted` | `{ label, contacts_removed, conversations_removed, source, user_id }` (não sai um `*.labels_updated` por contato/conversa) |
+| `contact.labels_updated` | `{ contact_id, labels, added, removed, source, user_id }` (etiquetas curtas). Sai pela tela, `POST /v1/contacts/{id}/labels`, E3 (`/tags`) e `POST /v1/contacts` com `tags`. **Não** sai pelo `PATCH /v1/contacts` antigo, `POST /v1/leads` nem pelas automações do navegador. |
+| `conversation.labels_updated` | `{ conversation_id, contact_id, remote_jid, labels, added, removed, source, user_id }` — `source`: `user` (tela: etiqueta, envio, botão "devolver"), `api`, `phone` (respondeu pelo celular → Atendimento humano), `system` (conversa nova → Atendimento IA). Junto com o `conversation.state_changed` quando a etiqueta de sistema muda. |
 | `whatsapp.connection` | `{ status: "connected" \| "disconnected", phone, instance }` |
