@@ -1,16 +1,19 @@
 import { useState, useEffect } from 'react';
 import { permissionsStore, ROLE_LABELS, DEFAULT_PERMISSIONS, auth } from '../lib/auth';
-import { RotateCcw, ShieldCheck, Smartphone, Wifi, WifiOff, Loader2, RefreshCw, Webhook, Copy, Check, KeyRound, Activity } from 'lucide-react';
+import { RotateCcw, ShieldCheck, Smartphone, Wifi, WifiOff, Loader2, RefreshCw, Webhook, Copy, Check, KeyRound, Activity, Tag } from 'lucide-react';
 import HealthPanel from '../components/HealthPanel';
+import LabelsPanel from '../components/LabelsPanel';
+import { labelsApi } from '../lib/labels';
 import { supabase } from '../lib/supabase';
 import { db } from '../lib/store';
 import QRCode from 'react-qrcode-logo';
 import { WEBHOOK_EVENTS } from '../../api/_lib/events.js';
 
 // A lista oficial dos eventos é api/_lib/events.js (a mesma do GET /v1/webhook-events).
-// A tela mostra só os que já saem hoje (available: true) — P1-W3.
-const OUTBOUND_EVENTS = WEBHOOK_EVENTS
-  .filter(e => e.available)
+// A tela mostra só os que já saem hoje (available: true) — P1-W3 — e, dos que dependem de uma
+// chave da empresa (feature), só com a chave ligada.
+const outboundEvents = features => WEBHOOK_EVENTS
+  .filter(e => e.available && (!e.feature || features[e.feature]))
   .map(e => ({ value: e.event, label: e.label || e.description, hint: e.hint }));
 
 // Normaliza URLs coladas do painel (ex: webhook.site dá a URL de VISUALIZAÇÃO,
@@ -39,6 +42,9 @@ const ROLES = ['admin', 'manager', 'seller'];
 
 export default function Settings() {
   const isAdmin = auth.isAdmin();
+  // Gerente com "Configurações" marcado nas permissões entra só na aba Etiquetas; as demais
+  // abas continuam só do admin.
+  const canSettings = auth.can('settings', 'access');
   const [perms, setPerms] = useState(() => permissionsStore.get());
   const [activeRole, setActiveRole] = useState('manager');
   const [saved, setSaved] = useState(false);
@@ -48,7 +54,7 @@ export default function Settings() {
   const [waQr, setWaQr] = useState(null);
   const [waLoading, setWaLoading] = useState(false);
   const [waError, setWaError] = useState(null);
-  const [waTab, setWaTab] = useState('permissions');
+  const [waTab, setWaTab] = useState(isAdmin ? 'permissions' : 'labels');
 
   // Integrações
   const [integ, setInteg] = useState(null);
@@ -125,6 +131,17 @@ export default function Settings() {
   }
   useEffect(() => { if (isAdmin) loadHealth(); }, [isAdmin]);
 
+  // Etiquetas (PLANO-ETIQUETAS, ET-4). Chave labels desligada → null → sem aba.
+  const [labelsData, setLabelsData] = useState(null);
+  const [labelsLoaded, setLabelsLoaded] = useState(false);
+  async function loadLabels() {
+    try { setLabelsData(await labelsApi.list({ counts: true })); }
+    catch { /* mantém o último dado */ }
+    setLabelsLoaded(true);
+  }
+  useEffect(() => { if (canSettings) loadLabels(); }, [canSettings]);
+  const OUTBOUND_EVENTS = outboundEvents({ labels: !!labelsData });
+
   async function connectWhatsApp() {
     setWaLoading(true);
     setWaQr(null);
@@ -158,11 +175,25 @@ export default function Settings() {
     setWaQr(null);
   }
 
-  if (!isAdmin) {
+  if (!isAdmin && (!canSettings || (labelsLoaded && !labelsData))) {
     return (
       <div className="p-6 flex flex-col items-center justify-center gap-3 text-gray-500 mt-16">
         <ShieldCheck className="w-10 h-10 text-gray-300" />
         <p className="font-medium">Sem permissão para acessar esta página.</p>
+      </div>
+    );
+  }
+
+  // Não-admin (gerente com Configurações): só a aba Etiquetas.
+  if (!isAdmin) {
+    return (
+      <div className="p-4 md:p-6 max-w-3xl mx-auto">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold">Configurações</h1>
+        </div>
+        {labelsData
+          ? <LabelsPanel data={labelsData} onReload={loadLabels} />
+          : <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-gray-300" /></div>}
       </div>
     );
   }
@@ -203,7 +234,7 @@ export default function Settings() {
       </div>
 
       {/* Tabs principais */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         <button onClick={() => setWaTab('permissions')}
           className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border
             ${waTab === 'permissions' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
@@ -220,6 +251,13 @@ export default function Settings() {
             ${waTab === 'integrations' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
           <Webhook className="w-4 h-4" /> Integrações
         </button>
+        {labelsData && (
+          <button onClick={() => setWaTab('labels')}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border flex items-center gap-2
+              ${waTab === 'labels' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+            <Tag className="w-4 h-4" /> Etiquetas
+          </button>
+        )}
         {health && (
           <button onClick={() => setWaTab('health')}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border flex items-center gap-2
@@ -229,6 +267,11 @@ export default function Settings() {
           </button>
         )}
       </div>
+
+      {/* Tab Etiquetas (PLANO-ETIQUETAS · ET-4): só com a chave `labels` da empresa ligada */}
+      {waTab === 'labels' && labelsData && (
+        <LabelsPanel data={labelsData} onReload={loadLabels} />
+      )}
 
       {/* Tab Saúde (CF-A · A5): só aparece com a chave `health` da empresa ligada */}
       {waTab === 'health' && health && (

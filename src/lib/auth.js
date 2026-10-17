@@ -6,35 +6,9 @@ export const ROLE_LABELS = {
   seller:  { label: 'Vendedor', color: '#10b981', desc: 'Acessa apenas seus próprios leads' },
 };
 
-export const DEFAULT_PERMISSIONS = {
-  admin: {
-    pipeline:    { view_all: true,  view_own: true,  create: true,  edit: true,  remove: true  },
-    contacts:    { view_all: true,  view_own: true,  create: true,  edit: true,  remove: true  },
-    chats:       { view_all: true,  view_own: true,  send: true                                },
-    automations: { view: true,  create: true,  edit: true,  remove: true,  execute: true       },
-    import:      { access: true                                                                 },
-    users:       { view: true,  create: true,  edit: true,  remove: true                      },
-    settings:    { access: true                                                                 },
-  },
-  manager: {
-    pipeline:    { view_all: true,  view_own: true,  create: true,  edit: true,  remove: false },
-    contacts:    { view_all: true,  view_own: true,  create: true,  edit: true,  remove: false },
-    chats:       { view_all: true,  view_own: true,  send: true                                },
-    automations: { view: true,  create: true,  edit: true,  remove: false, execute: true       },
-    import:      { access: true                                                                 },
-    users:       { view: true,  create: false, edit: false, remove: false                      },
-    settings:    { access: false                                                                },
-  },
-  seller: {
-    pipeline:    { view_all: false, view_own: true,  create: true,  edit: true,  remove: false },
-    contacts:    { view_all: false, view_own: true,  create: true,  edit: true,  remove: false },
-    chats:       { view_all: false, view_own: true,  send: true                                },
-    automations: { view: false, create: false, edit: false, remove: false, execute: false      },
-    import:      { access: false                                                                },
-    users:       { view: false, create: false, edit: false, remove: false                      },
-    settings:    { access: false                                                                },
-  },
-};
+// Fonte única (o servidor confere as mesmas regras nas rotas da tela que gravam).
+import { DEFAULT_PERMISSIONS } from '../../api/_lib/permissions.js';
+export { DEFAULT_PERMISSIONS };
 
 // Cache da sessão em memória (evita re-fetches desnecessários)
 let _session = null;

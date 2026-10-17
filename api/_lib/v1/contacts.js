@@ -1,6 +1,7 @@
 import { adminClient } from '../db.js';
 import { handleContacts, fieldsByName, resolveContact, resolveFieldKeys } from '../v1handlers.js';
 import { dispatchWebhook } from '../webhooks.js';
+import { labelsEnabled, labelsOfContacts, contactLabelsOrNull, emitContactLabelsDiff } from '../labels.js';
 import { V1Error, fail, readPaging, paged, readDate, queryParam, isRangeBeyondEnd, isUuid, isPlainObject, mergeMetadata, sameJson } from './http.js';
 
 // GET /v1/contacts com phone, id ou external_id é a rota ANTIGA (devolve um contato só) e
@@ -44,6 +45,10 @@ export async function updateContactTags(req, res, { companyId, params }) {
     if (!c) return notFound();
 
     const cur = c.tags || [];
+    // Etiquetas (chave labels): o array continua a fonte; o gatilho espelha. Guarda o antes
+    // para soltar contact.labels_updated junto com o contact.tags_updated.
+    const labelsOn = await labelsEnabled(companyId, admin);
+    const labelsBefore = labelsOn ? await contactLabelsOrNull(admin, companyId, c.id) : null;
     let next;
     if (operation === 'InsertIfNotExists') next = [...cur, ...input.filter(t => !cur.includes(t))];
     else if (operation === 'DeleteIfExists') next = cur.filter(t => !input.includes(t));
@@ -60,6 +65,7 @@ export async function updateContactTags(req, res, { companyId, params }) {
           contact_id: c.id, tags: next, added, removed, source: 'api',
         });
       } catch (e) { console.error('[v1] webhook de tags falhou:', e?.message || e); }
+      if (labelsOn) await emitContactLabelsDiff(admin, companyId, c.id, labelsBefore, { source: 'api' });
     }
     return res.status(200).json({ ok: true, contact_id: c.id, tags: added.length || removed.length ? next : cur, added, removed });
   } catch (e) {
@@ -116,6 +122,8 @@ export async function createContact(req, res, { companyId }) {
     });
 
     if (existing) {
+      const labelsOn = await labelsEnabled(companyId, admin);
+      const labelsBefore = labelsOn ? await contactLabelsOrNull(admin, companyId, existing.id) : null;
       if (options.upsert === false) {
         return res.status(409).json({ error: 'contact_exists', message: 'Já existe um contato com estes dados.', contact_id: existing.id });
       }
@@ -139,6 +147,7 @@ export async function createContact(req, res, { companyId }) {
           await dispatchWebhook(companyId, 'contact.updated', { contact_id: existing.id, changes, source: 'api' });
         } catch (e) { console.error('[v1] webhook de contato falhou:', e?.message || e); }
       }
+      if (labelsOn && changes.includes('tags')) await emitContactLabelsDiff(admin, companyId, existing.id, labelsBefore, { source: 'api' });
       if (legacy.status !== 200) return res.status(legacy.status).json(legacy.body);
       return res.status(200).json({ ...legacy.body, created: false });
     }
@@ -193,6 +202,7 @@ export async function createContact(req, res, { companyId }) {
         contact_id: c.id, name: c.name, phone: c.phone, email: c.email, source: 'api',
       });
     } catch (e) { console.error('[v1] webhook de contato falhou:', e?.message || e); }
+    if (tags.length) await emitContactLabelsDiff(admin, companyId, c.id, [], { source: 'api' });
 
     return res.status(201).json({ ok: true, created: true, contact_id: c.id, unknown_fields: unknownFields });
   } catch (e) {
@@ -256,6 +266,9 @@ export async function listContacts(req, res, ctx) {
     const { data: defs, error: dErr } = await admin.from('custom_fields')
       .select('id, name').eq('company_id', companyId);
     if (dErr) throw dErr;
+    // Etiquetas (chave labels ligada): cada contato ganha labels. Desligada = resposta igual.
+    const labels = await labelsEnabled(companyId, admin)
+      ? await labelsOfContacts(admin, companyId, (data || []).map(c => c.id)) : null;
 
     // Objeto Contato do contrato.
     const items = (data || []).map(c => ({
@@ -269,6 +282,7 @@ export async function listContacts(req, res, ctx) {
       metadata: c.metadata || {},
       created_at: c.created_at,
       updated_at: c.updated_at,
+      ...(labels ? { labels: labels.get(c.id) || [] } : {}),
     }));
     return paged(res, page, items, count);
   } catch (e) {

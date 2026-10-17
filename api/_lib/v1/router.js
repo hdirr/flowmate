@@ -12,6 +12,7 @@ import { listContacts, updateContactTags, createContact } from './contacts.js';
 import { listUsers } from './users.js';
 import { getMessage, getOutboundMessage } from './messages.js';
 import { listWebhookEvents } from './webhookEvents.js';
+import { listLabelsRoute, getLabelRoute, createLabelRoute, updateLabelRoute, deleteLabelRoute, contactLabelsRoute, conversationLabelsRoute } from './labels.js';
 import { listConversations, getConversation, listConversationMessages, updateConversation, sendConversationMessage } from './conversations.js';
 
 export const ROUTES = [
@@ -34,6 +35,14 @@ export const ROUTES = [
   { method: 'GET', pattern: 'contacts', handler: listContacts },
   { method: 'POST', pattern: 'contacts', handler: createContact }, // P1-E2 (PATCH contacts segue no switch antigo)
   { method: 'POST', pattern: 'contacts/:id/tags', handler: updateContactTags }, // P1-E3   // P1-L4 (com phone/id/external_id delega à rota antiga; PATCH/POST seguem no switch)
+  // Etiquetas (PLANO-ETIQUETAS, ET-2) — atrás da chave labels (desligada: 404 feature_off)
+  { method: 'GET', pattern: 'labels', handler: listLabelsRoute },
+  { method: 'POST', pattern: 'labels', handler: createLabelRoute },
+  { method: 'GET', pattern: 'labels/:id', handler: getLabelRoute },
+  { method: 'PATCH', pattern: 'labels/:id', handler: updateLabelRoute },
+  { method: 'DELETE', pattern: 'labels/:id', handler: deleteLabelRoute },
+  { method: 'POST', pattern: 'contacts/:id/labels', handler: contactLabelsRoute },
+  { method: 'POST', pattern: 'conversations/:id/labels', handler: conversationLabelsRoute },
 ];
 
 function splitRoute(route) {

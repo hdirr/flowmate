@@ -5,6 +5,8 @@ import { auth } from '../lib/auth';
 import { Plus, Search, User, Phone, Mail, Trash2, X, KanbanSquare, Upload, CheckSquare, Square, ChevronDown, Loader2, MessageCircle } from 'lucide-react';
 import ContactPanel from '../components/ContactPanel';
 import ImportModal from '../components/ImportModal';
+import { LabelChip, pickLabels } from '../components/LabelChips';
+import { labelsApi } from '../lib/labels';
 
 const EMPTY = { name: '', phone: '', email: '', stage_id: null };
 
@@ -40,6 +42,24 @@ export default function Contacts() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Etiquetas (chave labels; desligada → nada aparece)
+  const [labels, setLabels] = useState(null);
+  const [labelMap, setLabelMap] = useState({});
+  const loadLabels = useCallback(async () => {
+    try {
+      const list = await labelsApi.list();
+      if (!list) { setLabels(null); return; }
+      const map = await labelsApi.map();
+      setLabels(list.labels);
+      setLabelMap(map.contacts || {});
+    } catch { /* mantém o último */ }
+  }, []);
+  useEffect(() => { loadLabels(); }, [loadLabels]);
+  useEffect(() => {
+    window.addEventListener('flowmate:labels', loadLabels);
+    return () => window.removeEventListener('flowmate:labels', loadLabels);
+  }, [loadLabels]);
   useEffect(() => {
     window.addEventListener('flowmate:update', refresh);
     return () => window.removeEventListener('flowmate:update', refresh);
@@ -220,6 +240,11 @@ export default function Contacts() {
                       </span>
                     )}
                   </div>
+                  {labels && labelMap[c.id]?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {pickLabels(labels, labelMap[c.id]).map(l => <LabelChip key={l.id} label={l} small />)}
+                    </div>
+                  )}
                 </button>
 
                 {/* Ações individuais */}

@@ -1,5 +1,6 @@
 import { adminClient, twinJid } from './db.js';
 import { dispatchWebhook } from './webhooks.js';
+import { isFeatureOn } from './features.js';
 
 // Estados possíveis de uma conversa. Vocabulário genérico: o Flowmate não sabe o que é "IA",
 // ele sabe o que é automação.
@@ -70,7 +71,11 @@ export async function getOrCreateConversation(companyId, remoteJid, admin = admi
       state_since: new Date().toISOString(),
     })
     .select().single();
-  if (!insErr) return created;
+  if (!insErr) {
+    // Etiquetas (chave labels): o gatilho do banco pôs "Atendimento IA" na conversa nova.
+    await emitLabelsEvent(admin, created, 'system', null, { onlyIndividual: true });
+    return created;
+  }
 
   // Corrida: outra requisição criou a mesma conversa. Usa a que está no banco, com o estado dela.
   if (insErr.code === '23505') {
@@ -96,26 +101,71 @@ export async function findTwinConversation(companyId, remoteJid, admin = adminCl
 // Retoma a gêmea mesmo que ela tenha sido pausada por outro caminho (é o mesmo celular e a
 // ordem é explícita). Cada conversa que muda gera o seu conversation.state_changed.
 // Devolve os ids que mudaram de fato.
-export async function resumeAutomation(conversation, companyId, actorUserId, source, admin = adminClient()) {
+// opts.quietLabelsFor: id da conversa cujo conversation.labels_updated quem chamou solta
+// (aplicar etiqueta pela API/tela junta tudo num evento só).
+export async function resumeAutomation(conversation, companyId, actorUserId, source, admin = adminClient(), opts = {}) {
   const changed = [];
+  const quiet = id => ({ quietLabels: opts.quietLabelsFor === id });
   if (conversation.state !== STATE.AUTOMATION) {
-    await setConversationState(conversation.id, STATE.AUTOMATION, actorUserId, source, admin);
+    await setConversationState(conversation.id, STATE.AUTOMATION, actorUserId, source, admin, quiet(conversation.id));
     changed.push(conversation.id);
   }
   const { twin, error } = await findTwinConversation(companyId, conversation.remote_jid, admin);
   if (error) console.error('[conversations] gêmea não lida ao retomar; o envio segue em 409 se ela estiver em human');
   if (twin && twin.state !== STATE.AUTOMATION) {
-    await setConversationState(twin.id, STATE.AUTOMATION, actorUserId, source, admin);
+    await setConversationState(twin.id, STATE.AUTOMATION, actorUserId, source, admin, quiet(twin.id));
     changed.push(twin.id);
   }
   return changed;
+}
+
+// Etiquetas (PLANO-ETIQUETAS, só com a chave labels ligada): conversation.labels_updated quando
+// o estado muda (o gatilho do banco troca a etiqueta de sistema) e na conversa nova. Nunca
+// derruba nem segura o fluxo de mensagens: try/catch e limite de 3 s; chave desligada = só a
+// leitura da chave (em cache).
+const SYSTEM_KEY = { [STATE.HUMAN]: 'human', [STATE.AUTOMATION]: 'ai' };
+function isIndividualJid(jid) {
+  const s = String(jid || '');
+  return !!s && !s.endsWith('@g.us') && !s.endsWith('@broadcast') && !s.endsWith('@newsletter');
+}
+async function emitLabelsEvent(admin, conv, source, actorUserId, { prevState = null, newState = null, onlyIndividual = false } = {}) {
+  try {
+    if (!conv?.company_id || (onlyIndividual && !isIndividualJid(conv.remote_jid))) return;
+    if (!(await isFeatureOn(conv.company_id, 'labels', admin))) return;
+    const { data, error } = await admin.from('conversation_labels')
+      .select('label:labels(id, name, color, kind, system_key)')
+      .eq('company_id', conv.company_id).eq('conversation_id', conv.id);
+    if (error) throw error;
+    const all = (data || []).map(r => r.label).filter(Boolean);
+    const brief = l => ({ id: l.id, name: l.name, color: l.color, kind: l.kind });
+    let added, removed = [];
+    if (newState) {
+      added = all.filter(l => l.system_key === SYSTEM_KEY[newState]).map(brief);
+      if (prevState && SYSTEM_KEY[prevState]) {
+        const { data: prev } = await admin.from('labels').select('id, name, color, kind')
+          .eq('company_id', conv.company_id).eq('system_key', SYSTEM_KEY[prevState]).maybeSingle();
+        if (prev) removed = [brief(prev)];
+      }
+    } else {
+      added = all.map(brief);
+    }
+    if (!added.length && !removed.length) return;
+    await Promise.race([
+      dispatchWebhook(conv.company_id, 'conversation.labels_updated', {
+        conversation_id: conv.id, contact_id: conv.contact_id ?? null, remote_jid: conv.remote_jid,
+        labels: all.map(brief), added, removed, source, user_id: actorUserId || null,
+      }),
+      new Promise(resolve => setTimeout(resolve, 3000)),
+    ]);
+  } catch (e) { console.error('[conversations] evento de etiquetas falhou:', e?.message || e); }
 }
 
 // Transiciona o estado da conversa. state_by = usuário que pausou (null se veio do celular).
 // source diz quem mudou ('user' tela, 'api', 'phone' celular); sem source, deduz pelo actor
 // (com usuário = 'user', sem = 'phone') — assim sendMessage e handleWebhook não mudam.
 // Se o estado mudou de fato, dispara conversation.state_changed (P1-W1).
-export async function setConversationState(conversationId, state, actorUserId = null, source = null, admin = adminClient()) {
+// opts.quietLabels: não solta conversation.labels_updated (quem chamou solta um evento só).
+export async function setConversationState(conversationId, state, actorUserId = null, source = null, admin = adminClient(), opts = {}) {
   let before = null;
   try {
     const { data } = await admin.from('conversations')
@@ -149,6 +199,10 @@ export async function setConversationState(conversationId, state, actorUserId = 
         new Promise(resolve => setTimeout(resolve, 3000)),
       ]);
     } catch (e) { console.error('[conversations] webhook state_changed falhou:', e?.message || e); }
+    if (!opts.quietLabels) {
+      await emitLabelsEvent(admin, { id: conversationId, ...before }, source || (actorUserId ? 'user' : 'phone'), actorUserId,
+        { prevState: before.state, newState: state, onlyIndividual: true });
+    }
   }
   return { ok: true };
 }

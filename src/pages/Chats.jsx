@@ -5,7 +5,9 @@ import { db } from '../lib/store';
 import { auth } from '../lib/auth';
 import { Send, Search, MessageCircle, Wifi, WifiOff, Loader2, RefreshCw, Paperclip, FileText, X, UserCog, Bot, Users, UsersRound, Plus, Mic, Film, Image as ImageIcon } from 'lucide-react';
 import ContactPanel from '../components/ContactPanel';
-import { toWhatsAppNumber } from '../../api/_lib/phone.js';
+import LabelChips, { LabelChip, pickLabels } from '../components/LabelChips';
+import { labelsApi } from '../lib/labels';
+import { toWhatsAppNumber, twinJid } from '../../api/_lib/phone.js';
 
 function timeLabel(ts) {
   const d = ts > 1e10 ? new Date(ts) : new Date(ts * 1000);
@@ -238,6 +240,10 @@ export default function Chats() {
   const [editContact, setEditContact] = useState(null);
   const [convState, setConvState] = useState(null);   // { state, state_since, state_by }
   const [resuming, setResuming] = useState(false);
+  // Etiquetas (chave labels). labels null = chave desligada: a tela fica como antes.
+  const [labels, setLabels] = useState(null);
+  const [labelMap, setLabelMap] = useState({ contacts: {}, conversations: {} });
+  const [labelFilter, setLabelFilter] = useState('');
   const [search, setSearch] = useState('');
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [groupName, setGroupName] = useState('');
@@ -337,6 +343,23 @@ export default function Chats() {
     });
     if (res.ok) setConvState(await res.json());
   }, []);
+
+  const loadLabels = useCallback(async () => {
+    try {
+      const list = await labelsApi.list();
+      if (!list) { setLabels(null); return; }
+      const map = await labelsApi.map();
+      setLabels(list.labels);
+      setLabelMap({ contacts: map.contacts || {}, conversations: map.conversations || {} });
+    } catch { /* mantém o último */ }
+  }, []);
+  useEffect(() => {
+    loadLabels();
+    // Etiquetas mudam também pelo celular (Atendimento humano), pela API e pelo n8n.
+    const t = setInterval(loadLabels, 20000);
+    window.addEventListener('flowmate:labels', loadLabels);
+    return () => { clearInterval(t); window.removeEventListener('flowmate:labels', loadLabels); };
+  }, [loadLabels]);
 
   useEffect(() => { loadInstance(); }, [loadInstance]);
   useEffect(() => { loadMessages(); }, [loadMessages]);
@@ -560,6 +583,7 @@ export default function Chats() {
     setSending(false);
     await loadMessages();
     if (!selected.isGroup) await loadConvState(selected.phone);
+    if (labels) loadLabels(); // enviar pela tela marca Atendimento humano
   }
 
   async function resumeAutomation() {
@@ -573,7 +597,31 @@ export default function Chats() {
       body: JSON.stringify({ to: intl(selected.phone), state: 'automation' }),
     });
     await loadConvState(selected.phone);
+    if (labels) loadLabels();
     setResuming(false);
+  }
+
+  // Etiquetas da conversa (a lista junta o JID da conversa e a gêmea do mesmo celular).
+  function convLabelIds(conv) {
+    const ids = new Set();
+    if (!conv) return ids;
+    const own = conv.isGroup ? null : `${conv.phone}@s.whatsapp.net`;
+    const jids = conv.isGroup ? [conv.jid] : [conv.jid, own, twinJid(own)];
+    for (const j of new Set(jids.filter(Boolean))) for (const id of labelMap.conversations[j] || []) ids.add(id);
+    return ids;
+  }
+  // Lista: etiquetas da conversa + do contato (sem repetir).
+  function listLabelIds(conv) {
+    const ids = convLabelIds(conv);
+    for (const id of labelMap.contacts[conv.contact?.id] || []) ids.add(id);
+    return ids;
+  }
+  async function toggleConvLabel(label, add) {
+    if (!selected) return;
+    const target = selected.isGroup ? selected.jid : intl(selected.phone);
+    await labelsApi.applyConversation(target, label.id, add ? 'add' : 'remove');
+    await loadLabels();
+    if (!selected.isGroup && label.kind === 'system') await loadConvState(selected.phone);
   }
 
   function mediaTypeOf(file) {
@@ -691,8 +739,9 @@ export default function Chats() {
       : mergedConvs(conversations, groupConvs);
 
   const filteredConversations = baseList.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    String(c.phone || '').includes(search)
+    (c.name.toLowerCase().includes(search.toLowerCase()) ||
+    String(c.phone || '').includes(search))
+    && (!labels || !labelFilter || listLabelIds(c).has(labelFilter))
   );
 
   const modalContacts = contacts.filter(c =>
@@ -758,6 +807,15 @@ export default function Chats() {
             ))}
           </div>
 
+          {labels && labels.length > 0 && (
+            <select value={labelFilter} onChange={e => setLabelFilter(e.target.value)}
+              title="Filtrar por etiqueta"
+              className="w-full mb-2 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1.5 text-xs text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-400">
+              <option value="">Todas as etiquetas</option>
+              {labels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+          )}
+
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
             <input
@@ -814,6 +872,15 @@ export default function Chats() {
                             : conv.last.content)
                       : 'Sem mensagens ainda'}
                   </p>
+                  {labels && (() => {
+                    const ls = pickLabels(labels, [...listLabelIds(conv)]);
+                    return ls.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {ls.slice(0, 4).map(l => <LabelChip key={l.id} label={l} small />)}
+                        {ls.length > 4 && <span className="text-[10px] text-gray-400">+{ls.length - 4}</span>}
+                      </div>
+                    );
+                  })()}
                 </div>
               </button>
             ))
@@ -841,8 +908,28 @@ export default function Chats() {
               </div>
             </button>
 
-            {/* Estado da conversa: só existe em 1:1. Grupo mostra badge próprio. */}
-            {selected.isGroup ? (
+            {/* Etiquetas ligadas: os chips da conversa entram no lugar do selo de estado
+                (Atendimento humano/IA são etiquetas). "Devolver" continua enquanto humano. */}
+            {labels ? (
+              <div className="shrink-0 flex items-center gap-2 max-w-[55%]">
+                {selected.isGroup && (
+                  <span title="Grupo — a pausa de automação não se aplica"
+                    className="shrink-0 flex items-center gap-1 text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-1">
+                    <UsersRound className="w-3.5 h-3.5" />
+                  </span>
+                )}
+                <LabelChips all={labels} current={pickLabels(labels, [...convLabelIds(selected)])}
+                  onToggle={toggleConvLabel} allowSystem={!selected.isGroup} compact />
+                {!selected.isGroup && convState?.state === 'human' && (
+                  <button onClick={resumeAutomation} disabled={resuming}
+                    title="Devolver esta conversa para a automação (Atendimento IA)"
+                    className="shrink-0 flex items-center gap-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg px-2.5 py-1.5 transition-colors disabled:opacity-50">
+                    {resuming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bot className="w-3.5 h-3.5" />}
+                    <span className="hidden lg:inline">Devolver p/ automação</span>
+                  </button>
+                )}
+              </div>
+            ) : selected.isGroup ? (
               <span title="Grupo — a pausa de automação não se aplica"
                 className="shrink-0 flex items-center gap-1 text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-1">
                 <UsersRound className="w-3.5 h-3.5" /> <span className="hidden sm:inline">grupo</span>

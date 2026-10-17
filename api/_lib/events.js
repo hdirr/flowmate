@@ -7,6 +7,8 @@
 // depende (null quando já sai). Atualize os dois na tarefa que passar a emitir o evento —
 // assim o cliente não assina, sem saber, um evento que ainda nunca chega.
 // label/hint: texto curto da tela (a API devolve description).
+// feature: chave da empresa (companies.features) sem a qual o evento nunca sai. A tela de
+// Integrações só mostra o evento com a chave ligada; a API devolve requires_feature.
 export const WEBHOOK_EVENTS = [
   { event: 'message.received',          description: 'Cliente mandou mensagem (só com a conversa em automação)', since: 'v1', available: true,  available_after: null,
     label: 'Mensagem recebida', hint: 'só quando a conversa está em automação' },
@@ -29,6 +31,17 @@ export const WEBHOOK_EVENTS = [
     label: 'Nota criada', hint: 'pela API' },
   { event: 'conversation.state_changed',description: 'Conversa mudou entre automação e humano', since: 'p1', available: true,  available_after: null,
     label: 'Conversa mudou de estado', hint: 'automação ↔ humano (tela, celular ou API)' },
+  // Etiquetas (PLANO-ETIQUETAS, ET-2/ET-4): só com a chave labels ligada.
+  { event: 'label.created',             description: 'Etiqueta criada (tela ou API)', since: 'labels', available: true, available_after: null, feature: 'labels',
+    label: 'Etiqueta criada', hint: 'tela ou API' },
+  { event: 'label.updated',             description: 'Etiqueta renomeada ou com cor nova (tela ou API)', since: 'labels', available: true, available_after: null, feature: 'labels',
+    label: 'Etiqueta alterada', hint: 'nome ou cor' },
+  { event: 'label.deleted',             description: 'Etiqueta excluída e tirada de contatos e conversas (tela ou API)', since: 'labels', available: true, available_after: null, feature: 'labels',
+    label: 'Etiqueta excluída' },
+  { event: 'contact.labels_updated',    description: 'Etiquetas do contato mudaram (tela ou API)', since: 'labels', available: true, available_after: null, feature: 'labels',
+    label: 'Etiquetas do contato', hint: 'com a origem: tela ou API' },
+  { event: 'conversation.labels_updated', description: 'Etiquetas da conversa mudaram (tela, API, celular ou automática)', since: 'labels', available: true, available_after: null, feature: 'labels',
+    label: 'Etiquetas da conversa', hint: 'com a origem: tela, API, celular ou automática' },
   { event: 'whatsapp.connection',       description: 'Número conectou ou desconectou', since: 'p1', available: false, available_after: 'P1-W2',
     label: 'WhatsApp conectou/desconectou' },
 ];

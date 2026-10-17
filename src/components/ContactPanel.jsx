@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, Phone, Mail, Save, User, KanbanSquare, Plus, Trash2, ChevronDown, Hash, Calendar, List, Type, Loader2 } from 'lucide-react';
 import { db } from '../lib/store';
+import { labelsApi } from '../lib/labels';
+import LabelChips from './LabelChips';
 
 const FIELD_TYPES = [
   { value: 'text',   label: 'Texto',  icon: Type },
@@ -29,6 +31,30 @@ export default function ContactPanel({ contact, onClose, onSave }) {
   const [showNewField, setShowNewField] = useState(false);
   const [newField, setNewField] = useState({ name: '', type: 'text', options: '' });
   const [creatingField, setCreatingField] = useState(false);
+
+  // Etiquetas (chave labels): aplicadas na hora, sem depender do "Salvar". Só de usuário
+  // (etiqueta de sistema nunca vai em contato). Chave desligada → seção some.
+  const [allLabels, setAllLabels] = useState(null);
+  const [contactLabels, setContactLabels] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const list = await labelsApi.list();
+        if (!alive || !list) return;
+        const mine = await labelsApi.ofContact(contact.id);
+        if (!alive) return;
+        setAllLabels(list.labels);
+        setContactLabels(mine.labels || []);
+      } catch { /* sem etiquetas na tela */ }
+    })();
+    return () => { alive = false; };
+  }, [contact.id]);
+  async function toggleLabel(label, add) {
+    const r = await labelsApi.applyContact(contact.id, label.id, add ? 'add' : 'remove');
+    setContactLabels(r.labels || []);
+    window.dispatchEvent(new Event('flowmate:labels'));
+  }
 
   const loadData = useCallback(async () => {
     const [s, leads, cf, p] = await Promise.all([
@@ -145,6 +171,13 @@ export default function ContactPanel({ contact, onClose, onSave }) {
                 </div>
               ))}
             </section>
+
+            {allLabels && (
+              <section>
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Etiquetas</h3>
+                <LabelChips all={allLabels} current={contactLabels} onToggle={toggleLabel} />
+              </section>
+            )}
 
             {/* Campos customizados */}
             <section>

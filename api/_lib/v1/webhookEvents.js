@@ -10,6 +10,7 @@ export async function listWebhookEvents(req, res) {
     since: e.since,
     available: e.available,
     available_after: e.available_after,
+    requires_feature: e.feature || null,
   }));
   return res.status(200).json({ items });
 }

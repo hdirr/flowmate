@@ -3,6 +3,7 @@ import { V1Error, fail, readPaging, paged, readDate, isUuid, queryParam, isRange
 import { MESSAGE_COLS, toMessage } from './messages.js';
 import { setConversationState, resumeAutomation } from '../conversations.js';
 import { sendMessage } from '../sendMessage.js';
+import { labelsEnabled, labelsOfConversations } from '../labels.js';
 
 // Tipo e telefone a partir do JID. Grupo = @g.us. @lid (identificador novo do WhatsApp) não é
 // telefone. phone só sai para @s.whatsapp.net; o resto (grupo, @lid, formato desconhecido) → null.
@@ -13,7 +14,7 @@ function jidInfo(jid) {
   return { type: 'individual', phone: null };
 }
 
-const CONV_COLS = 'id, remote_jid, contact_id, state, state_since, state_by, updated_at';
+export const CONV_COLS = 'id, remote_jid, contact_id, state, state_since, state_by, updated_at';
 
 // conversations não tem FK para crm_contacts: segunda consulta com os contatos das conversas.
 async function loadContacts(admin, companyId, convs) {
@@ -45,6 +46,14 @@ function toConversation(c, contacts) {
   };
 }
 
+// Conversas no formato do contrato; com a chave labels ligada, cada uma ganha labels
+// (etiquetas curtas: id, name, color, kind). Desligada = resposta igual à de antes.
+export async function toConversationWithLabels(admin, companyId, convs, labelsOn) {
+  const contacts = await loadContacts(admin, companyId, convs);
+  const labels = labelsOn ? await labelsOfConversations(admin, companyId, convs.map(c => c.id)) : null;
+  return convs.map(c => ({ ...toConversation(c, contacts), ...(labels ? { labels: labels.get(c.id) || [] } : {}) }));
+}
+
 function readEnum(query, name, allowed) {
   const v = queryParam(query, name);
   if (v === undefined || v === '') return null;
@@ -67,8 +76,8 @@ export async function getConversation(req, res, { companyId, params }) {
     if (error) throw error;
     if (!c) return notFound();
 
-    const [contacts, last] = await Promise.all([
-      loadContacts(admin, companyId, [c]),
+    const [[conv], last] = await Promise.all([
+      toConversationWithLabels(admin, companyId, [c], await labelsEnabled(companyId, admin)),
       admin.from('whatsapp_messages').select(MESSAGE_COLS)
         .eq('company_id', companyId).eq('remote_jid', c.remote_jid)
         .order('timestamp', { ascending: false, nullsFirst: false })
@@ -77,7 +86,7 @@ export async function getConversation(req, res, { companyId, params }) {
     ]);
     if (last.error) throw last.error;
 
-    return res.status(200).json({ ...toConversation(c, contacts), last_message: toMessage(last.data?.[0]) });
+    return res.status(200).json({ ...conv, last_message: toMessage(last.data?.[0]) });
   } catch (e) {
     console.error('[v1] conversation falhou:', e?.message || e);
     return fail(res, 500, 'internal_error', 'Erro ao consultar a conversa.');
@@ -160,8 +169,8 @@ export async function updateConversation(req, res, { companyId, params }) {
       ({ data: c, error } = await load());
       if (error) throw error;
     }
-    const contacts = await loadContacts(admin, companyId, [c]);
-    return res.status(200).json(toConversation(c, contacts));
+    const [conv] = await toConversationWithLabels(admin, companyId, [c], await labelsEnabled(companyId, admin));
+    return res.status(200).json(conv);
   } catch (e) {
     console.error('[v1] update conversation falhou:', e?.message || e);
     return fail(res, 500, 'internal_error', 'Erro ao alterar a conversa.');
@@ -272,8 +281,8 @@ export async function listConversations(req, res, { companyId }) {
     }
     if (error) throw error;
 
-    const contacts = await loadContacts(admin, companyId, data || []);
-    return paged(res, page, (data || []).map(c => toConversation(c, contacts)), count);
+    const items = await toConversationWithLabels(admin, companyId, data || [], await labelsEnabled(companyId, admin));
+    return paged(res, page, items, count);
   } catch (e) {
     console.error('[v1] conversations falhou:', e?.message || e);
     return fail(res, 500, 'internal_error', 'Erro ao consultar as conversas.');
