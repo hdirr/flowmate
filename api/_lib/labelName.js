@@ -9,7 +9,7 @@ export const LABEL_NAME_MAX = 100;
 
 export function labelSlug(value) {
   return String(value ?? '')
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
