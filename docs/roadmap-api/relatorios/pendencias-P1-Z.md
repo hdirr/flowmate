@@ -118,6 +118,10 @@ Cada item cita o relatório de origem.
   O isolamento está garantido pelo filtro `company_id` em todas as consultas da /v1, mas só foi
   testado com ids inexistentes.
 
+## Etiquetas (ET-3)
+- **Pendente:** conferir `message.received` com `state` e `labels` em "Atendimento humano" depois
+  que o Agadir trocar a URL de webhook da empresa. (ET-3, 2026-10-20)
+
 ## Lista de limpeza (dados de teste)
 - Campo personalizado `Teste API` e os campos `Nome Faixada`, `ID`, `Nascimento`, `Opcão`.
   (P1-00b, P1-00c)
@@ -135,5 +139,6 @@ Cada item cita o relatório de origem.
 - Link do webhook.site em Configurações → Integrações (`5e03e930…`): **expirou em 08/10**.
   Trocar por uma URL nova de teste (ou tirar). (P1-S4, 2026-10-13)
 - Mensagem "Teste FlowMate E7" na conversa "Teste 409" (envio real autorizado). (P1-E7)
+- Mensagens "Teste FlowMate ET-3 (a)" e "(c)" na conversa "Teste 409" (envio real autorizado). (ET-3)
 - Itens que já estavam no HANDOFF: contatos "Teste 409" e "Teste Idempotencia", cobranças de
   teste no AbacatePay, linhas de teste em `pending_signups`.

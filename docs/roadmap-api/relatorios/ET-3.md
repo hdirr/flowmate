@@ -125,4 +125,22 @@ update companies set features = features || '{"block_api_send_on_human": true}' 
 | `GET /v1/conversations/{id}` da conversa de teste (em humano) | `state: "human"` + etiqueta "Atendimento humano" |
 | `/api/conversations/label-settings` e `/state` sem login | 401 / 401 |
 | `GET /v1/webhook-events` | descrição nova do `message.received` |
-| Envio real e `message.received` | **não testado aqui** (roteiro acima, com o Agadir) |
+| Envio real e `message.received` | envio real: ver "Teste com envio real" abaixo; `message.received`: pendente |
+
+## Teste com envio real (2026-10-20, empresa do Agadir; só a conversa "Teste 409", autorizado)
+Conversa em "Atendimento humano" nos três testes. Conferência pelo histórico
+(`GET /v1/conversations/{id}/messages`).
+| Teste | Como | Resultado |
+| --- | --- | --- |
+| **a)** trava desligada | 1 envio pela API (`POST /v1/conversations/{id}/messages`) | **200**, sem 409; mensagem no histórico com `sender: automation`; etiqueta continuou "Atendimento humano" |
+| **b)** trava ligada (pelo interruptor da tela, pelo Agadir) | 1 envio pela API, 35 s depois de ligar (cache da chave) | **409 `conversation_paused`**; nada enviado (a mensagem não está no histórico); etiqueta igual |
+| **c)** trava ligada | o Agadir enviou pela tela de Chats | **saiu normalmente** (`sender: human` no histórico): envio pela tela nunca é bloqueado |
+
+Depois do teste c, o Agadir desligou a trava pela tela. Estado final: `labels` ligada e
+`block_api_send_on_human` desligada.
+
+**Pendente:** conferir o `message.received` com `state` e `labels` em "Atendimento humano". A URL
+de webhook da empresa (webhook.site) expirou; conferir quando o Agadir trocar a URL em
+Configurações → Integrações.
+
+**Limpeza:** as mensagens "Teste FlowMate ET-3 (a)" e "(c)" na conversa "Teste 409".
