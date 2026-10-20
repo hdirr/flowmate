@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Phone, Mail, MoveRight, Trash2, Save, Plus, ChevronDown, Loader2, MessageCircle } from 'lucide-react';
 import { db } from '../lib/store';
+import ContactLabels from './ContactLabels';
 
 const FIELD_TYPES_CFG = [
   { value: 'text',   label: 'Texto'  },
@@ -185,6 +186,9 @@ export default function LeadPanel({ lead, onClose, onUpdate, onRemove }) {
                 </div>
               )}
             </section>
+
+            {/* Etiquetas do contato do lead (chave labels) — mesma seção do painel do contato */}
+            <ContactLabels contactId={lead.contact_id} />
 
             {/* Campos personalizados */}
             <section>
