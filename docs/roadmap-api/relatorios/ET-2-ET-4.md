@@ -177,3 +177,15 @@ Vale em até 30 s (cache da chave), sem deploy. Recarregue a tela.
     repetir e removendo pelo nome digitado;
   - regressões E0b 24, E0 42, A1 35 e A6 32;
   - build ok.
+- **Produção (`d1e450c` + `9d46932`, chave ligada só na empresa do Agadir):**
+  - smoke idêntico;
+  - ao vivo pela `/v1`, com etiquetas temporárias depois apagadas:
+    - "Teste Slug Promoção ET" → `teste-slug-promocao-et`;
+    - "!!!" → 400 `invalid_name`;
+    - renomear "Atendimento IA" → 422 `label_is_system`;
+  - sobraram só as 3 etiquetas de antes.
+  - **Correção do registro:** a mensagem do `9d46932` diz que em produção "Promoção" virava
+    "promo-o". **Não era o servidor:** o curl do Git Bash no Windows recodifica argumentos com
+    acento. Com o corpo em arquivo UTF-8 (`--data-binary @arquivo`) o resultado é o certo. A
+    troca para escape ASCII (`\u0300-\u036f`) fica como robustez. Para testar com acento no
+    Windows, mande o corpo de um arquivo.
