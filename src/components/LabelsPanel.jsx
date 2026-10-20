@@ -3,6 +3,16 @@ import { Plus, Pencil, Trash2, Lock, Loader2, Check, Info } from 'lucide-react';
 import { labelsApi } from '../lib/labels';
 import { LABEL_COLORS, DEFAULT_LABEL_COLOR } from '../../api/_lib/labelColors.js';
 import { LabelChip } from './LabelChips';
+import { labelSlug } from '../../api/_lib/labelName.js';
+
+// Prévia do nome final (slug) enquanto digita.
+function NamePreview({ value }) {
+  const v = value.trim();
+  if (!v) return null;
+  const s = labelSlug(v);
+  if (!s) return <p className="text-xs text-red-500">Nome inválido: use letras ou números.</p>;
+  return <p className="text-xs text-gray-400">Nome final: <span className="font-mono text-gray-600">{s}</span></p>;
+}
 
 // Configurações → Etiquetas (PLANO-ETIQUETAS, ET-4). Só aparece com a chave `labels` ligada.
 // Criar/editar/excluir: quem acessa Configurações (o servidor confere de novo).
@@ -43,7 +53,7 @@ export default function LabelsPanel({ data, onReload }) {
   }
 
   async function create() {
-    if (!newName.trim()) return;
+    if (!labelSlug(newName)) return;
     const ok = await run(() => labelsApi.create(newName.trim(), newColor));
     if (ok) { setCreating(false); setNewName(''); setNewColor(DEFAULT_LABEL_COLOR); }
   }
@@ -51,7 +61,7 @@ export default function LabelsPanel({ data, onReload }) {
   async function saveEdit() {
     const before = labels.find(l => l.id === editing.id);
     const patch = {};
-    if (editing.kind !== 'system' && editing.name.trim() !== before.name) patch.name = editing.name.trim();
+    if (editing.kind !== 'system' && labelSlug(editing.name) !== before.name) patch.name = editing.name.trim();
     if (editing.color !== before.color) patch.color = editing.color;
     if (!Object.keys(patch).length) { setEditing(null); return; }
     if (await run(() => labelsApi.update(editing.id, patch))) setEditing(null);
@@ -84,16 +94,17 @@ export default function LabelsPanel({ data, onReload }) {
 
       {creating && (
         <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 space-y-3">
-          <input autoFocus value={newName} maxLength={100} onChange={e => setNewName(e.target.value)}
+          <input autoFocus value={newName} maxLength={200} onChange={e => setNewName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && create()}
             placeholder="Nome da etiqueta (ex.: Retorno, VIP, Orçamento enviado)"
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white" />
+          <NamePreview value={newName} />
           <ColorPicker value={newColor} onChange={setNewColor} />
           <div className="flex items-center gap-2">
-            {newName.trim() && <LabelChip label={{ name: newName.trim(), color: newColor, kind: 'user' }} />}
+            {labelSlug(newName) && <LabelChip label={{ name: labelSlug(newName), color: newColor, kind: 'user' }} />}
             <div className="ml-auto flex gap-2">
               <button onClick={() => { setCreating(false); setNewName(''); }} className="border border-gray-200 bg-white rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50">Cancelar</button>
-              <button onClick={create} disabled={!newName.trim() || busy}
+              <button onClick={create} disabled={!labelSlug(newName) || busy}
                 className="bg-blue-600 text-white rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5">
                 {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Criar
               </button>
@@ -110,10 +121,11 @@ export default function LabelsPanel({ data, onReload }) {
             <div key={l.id} className="px-4 py-3">
               {isEditing ? (
                 <div className="space-y-3">
-                  <input value={editing.name} maxLength={100} disabled={system}
+                  <input value={editing.name} maxLength={200} disabled={system}
                     onChange={e => setEditing(x => ({ ...x, name: e.target.value }))}
                     onKeyDown={e => e.key === 'Enter' && saveEdit()}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50 disabled:text-gray-400" />
+                  {!system && <NamePreview value={editing.name} />}
                   {system && (
                     <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 flex gap-1.5">
                       <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -123,7 +135,7 @@ export default function LabelsPanel({ data, onReload }) {
                   <ColorPicker value={editing.color} onChange={color => setEditing(x => ({ ...x, color }))} />
                   <div className="flex justify-end gap-2">
                     <button onClick={() => setEditing(null)} className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50">Cancelar</button>
-                    <button onClick={saveEdit} disabled={busy || (!system && !editing.name.trim())}
+                    <button onClick={saveEdit} disabled={busy || (!system && !labelSlug(editing.name))}
                       className="bg-blue-600 text-white rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5">
                       {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Salvar
                     </button>

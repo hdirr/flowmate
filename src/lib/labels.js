@@ -17,6 +17,7 @@ async function call(path, { method = 'GET', body } = {}) {
     const err = new Error(data?.message || 'Não foi possível concluir. Tente de novo.');
     err.status = res.status;
     err.code = data?.error;
+    err.data = data;
     throw err;
   }
   return data;
@@ -29,6 +30,12 @@ export const labelsApi = {
     catch (e) { if (e.status === 404) return null; throw e; }
   },
   create: (name, color) => call('labels', { method: 'POST', body: { name, color } }),
+  // "Criar na hora": cria (cinza) e devolve o id; se o nome padronizado já existe, devolve o
+  // da existente (aplica a existente em vez de criar outra).
+  createOrGet: async name => {
+    try { return (await call('labels', { method: 'POST', body: { name } })).id; }
+    catch (e) { if (e.status === 409 && e.data?.label_id) return e.data.label_id; throw e; }
+  },
   update: (id, patch) => call(`labels?id=${encodeURIComponent(id)}`, { method: 'PATCH', body: patch }),
   remove: id => call(`labels?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
   map: () => call('label-map'),

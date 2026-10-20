@@ -207,7 +207,7 @@ Desligada, as rotas abaixo respondem **404 `feature_off`** e nada mais muda. Lig
   | Rota | Corpo | Observações |
   | --- | --- | --- |
   | `GET /labels` | — | lista paginada; `?kind=user` ou `system` |
-  | `POST /labels` | `{ "name": "Retorno", "color": "#ef4444" }` | 201; nome repetido → 409 `label_exists`; cor só da paleta (abaixo) |
+  | `POST /labels` | `{ "name": "Retorno", "color": "#ef4444" }` | 201 com `name: "retorno"` (padronizado); já existe → 409 `label_exists` com `label_id`; cor só da paleta (abaixo) |
   | `PATCH /labels/{id}` | `{ "name": "…", "color": "…" }` | de sistema: só a cor (nome → 422 `label_is_system`) |
   | `DELETE /labels/{id}` | — | tira de todos os contatos/conversas; diz quantos. Sistema → 422 |
   | `POST /contacts/{id}/labels` | `{ "labels": ["Retorno"], "operation": "InsertIfNotExists" }` | id ou nome exato; `DeleteIfExists`, `ReplaceAll`. Sistema → 422. Nome que não existe → 422 `label_not_found` + `missing` |
@@ -218,8 +218,15 @@ Desligada, as rotas abaixo respondem **404 `feature_off`** e nada mais muda. Lig
   individual; nunca em contato nem em grupo; não se removem — **aplique a outra** (remover → 422
   `system_label_required`). Aplicar "Atendimento humano" = pausar (`state: human`, 409 no envio
   automático); "Atendimento IA" = devolver. Vale também para a gêmea (com/sem o 9º dígito).
-- **Tags continuam:** `POST /contacts/{id}/tags` funciona igual; etiqueta de contato e tag são a
-  mesma coisa (tag nova vira etiqueta cinza; renomear/excluir a etiqueta muda as `tags`).
+- **Nome padronizado:** toda etiqueta criada ou renomeada vira slug — minúsculas, sem acento,
+  hífen no lugar de espaço/símbolo ("Promoção Natal" → `promocao-natal`). "!!!" → 400. As de
+  sistema mantêm "Atendimento humano"/"Atendimento IA". Para aplicar, pode mandar o nome como
+  digitou: ele acha o slug.
+- **Tags (MUDANÇA com a chave ligada):** `POST /contacts/{id}/tags` passa a gravar as tags
+  **padronizadas**: `"VIP"` grava `"vip"` (e `DeleteIfExists` com `"VIP"` remove `"vip"`). O
+  mesmo no `POST /contacts` com `tags`. **Se o seu fluxo compara tags com maiúsculas ou acento,
+  compare com o slug.** Etiqueta de contato e tag continuam sendo a mesma coisa (tag nova vira
+  etiqueta cinza; renomear/excluir a etiqueta muda as `tags`).
 - **`labels`** passa a vir em `GET /contacts` (lista) e nas conversas (`GET /conversations`,
   `GET/PATCH /conversations/{id}`), no formato `[{ id, name, color, kind }]`.
 - **Eventos** (só com a chave; na tela de Integrações aparecem só com ela ligada):

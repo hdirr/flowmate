@@ -1,7 +1,7 @@
 import { adminClient } from '../db.js';
 import { handleContacts, fieldsByName, resolveContact, resolveFieldKeys } from '../v1handlers.js';
 import { dispatchWebhook } from '../webhooks.js';
-import { labelsEnabled, labelsOfContacts, contactLabelsOrNull, emitContactLabelsDiff } from '../labels.js';
+import { labelsEnabled, labelsOfContacts, contactLabelsOrNull, emitContactLabelsDiff, normalizeTags } from '../labels.js';
 import { V1Error, fail, readPaging, paged, readDate, queryParam, isRangeBeyondEnd, isUuid, isPlainObject, mergeMetadata, sameJson } from './http.js';
 
 // GET /v1/contacts com phone, id ou external_id é a rota ANTIGA (devolve um contato só) e
@@ -35,9 +35,17 @@ export async function updateContactTags(req, res, { companyId, params }) {
       || raw.some(t => typeof t !== 'string' || !t.trim() || t.trim().length > 100)) {
     throw new V1Error(400, 'invalid_tags', '"tags" precisa ser uma lista de 1 a 50 textos (até 100 caracteres cada); vazia só com ReplaceAll.');
   }
-  const input = [...new Set(raw.map(t => t.trim()))];
-
   const admin = adminClient();
+  // Chave labels ligada: tag = etiqueta, com o nome padronizado ("VIP" → "vip"). Desligada:
+  // como sempre (exata, só as pontas aparadas).
+  const labelsOn = await labelsEnabled(companyId, admin);
+  let input = [...new Set(raw.map(t => t.trim()))];
+  if (labelsOn) {
+    const n = normalizeTags(input);
+    if (n.empty.length) throw new V1Error(400, 'invalid_tags', `Tag vazia depois de padronizar: ${n.empty.join(', ')}. Use letras ou números.`);
+    input = n.tags;
+  }
+
   try {
     const { data: c, error } = await admin.from('crm_contacts')
       .select('id, tags').eq('company_id', companyId).eq('id', params.id).maybeSingle();
@@ -47,7 +55,6 @@ export async function updateContactTags(req, res, { companyId, params }) {
     const cur = c.tags || [];
     // Etiquetas (chave labels): o array continua a fonte; o gatilho espelha. Guarda o antes
     // para soltar contact.labels_updated junto com o contact.tags_updated.
-    const labelsOn = await labelsEnabled(companyId, admin);
     const labelsBefore = labelsOn ? await contactLabelsOrNull(admin, companyId, c.id) : null;
     let next;
     if (operation === 'InsertIfNotExists') next = [...cur, ...input.filter(t => !cur.includes(t))];
@@ -105,7 +112,7 @@ async function runLegacy(body, companyId) {
 const TRACKED = ['name', 'email', 'tags', 'fields', 'metadata'];
 
 export async function createContact(req, res, { companyId }) {
-  const body = isPlainObject(req.body) ? req.body : null;
+  let body = isPlainObject(req.body) ? req.body : null;
   if (!body) throw new V1Error(400, 'invalid_body', 'Envie um objeto JSON.');
   const options = body.options === undefined || body.options === null ? {} : body.options;
   if (!isPlainObject(options)) throw badField('options', 'precisa ser um objeto');
@@ -116,13 +123,22 @@ export async function createContact(req, res, { companyId }) {
   if (hasId && !isUuid(String(body.contact_id))) return contactNotFound();
 
   const admin = adminClient();
+  // Chave labels ligada: as tags vão padronizadas (como na E3), nos dois caminhos.
+  const labelsOn = await labelsEnabled(companyId, admin);
+  if (labelsOn && Array.isArray(body.tags) && body.tags.every(t => typeof t === 'string')) {
+    if (body.tags.some(t => !t.trim() || t.trim().length > 100)) {
+      throw new V1Error(400, 'invalid_tags', '"tags" precisa ser uma lista de até 50 textos (até 100 caracteres cada).');
+    }
+    const n = normalizeTags(body.tags.map(t => t.trim()));
+    if (n.empty.length) throw new V1Error(400, 'invalid_tags', `Tag vazia depois de padronizar: ${n.empty.join(', ')}. Use letras ou números.`);
+    body = { ...body, tags: n.tags };
+  }
   try {
     const existing = await resolveContact(companyId, {
       contact_id: body.contact_id, external_id: body.external_id, phone: body.phone,
     });
 
     if (existing) {
-      const labelsOn = await labelsEnabled(companyId, admin);
       const labelsBefore = labelsOn ? await contactLabelsOrNull(admin, companyId, existing.id) : null;
       if (options.upsert === false) {
         return res.status(409).json({ error: 'contact_exists', message: 'Já existe um contato com estes dados.', contact_id: existing.id });

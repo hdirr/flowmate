@@ -244,6 +244,7 @@ export default function Chats() {
   const [labels, setLabels] = useState(null);
   const [labelMap, setLabelMap] = useState({ contacts: {}, conversations: {} });
   const [labelFilter, setLabelFilter] = useState('');
+  const [labelsCanManage, setLabelsCanManage] = useState(false);
   const [search, setSearch] = useState('');
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [groupName, setGroupName] = useState('');
@@ -350,6 +351,7 @@ export default function Chats() {
       if (!list) { setLabels(null); return; }
       const map = await labelsApi.map();
       setLabels(list.labels);
+      setLabelsCanManage(!!list.can_manage);
       setLabelMap({ contacts: map.contacts || {}, conversations: map.conversations || {} });
     } catch { /* mantém o último */ }
   }, []);
@@ -615,6 +617,11 @@ export default function Chats() {
     const ids = convLabelIds(conv);
     for (const id of labelMap.contacts[conv.contact?.id] || []) ids.add(id);
     return ids;
+  }
+  // "Criar na hora" no cabeçalho (só quem gerencia etiquetas): cria ou acha a existente e aplica.
+  async function createConvLabel(name) {
+    const id = await labelsApi.createOrGet(name);
+    await toggleConvLabel({ id, kind: 'user' }, true);
   }
   async function toggleConvLabel(label, add) {
     if (!selected) return;
@@ -919,7 +926,8 @@ export default function Chats() {
                   </span>
                 )}
                 <LabelChips all={labels} current={pickLabels(labels, [...convLabelIds(selected)])}
-                  onToggle={toggleConvLabel} allowSystem={!selected.isGroup} compact />
+                  onToggle={toggleConvLabel} allowSystem={!selected.isGroup} compact
+                  onCreate={labelsCanManage ? createConvLabel : undefined} />
                 {!selected.isGroup && convState?.state === 'human' && (
                   <button onClick={resumeAutomation} disabled={resuming}
                     title="Devolver esta conversa para a automação (Atendimento IA)"

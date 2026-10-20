@@ -38,7 +38,7 @@ export default async function handler(req, res) {
     await requireLabels(who.companyId, admin);
     return await fn(req, res, who, admin);
   } catch (e) {
-    if (e instanceof V1Error) return res.status(e.status).json({ error: e.error, message: e.message });
+    if (e instanceof V1Error) return res.status(e.status).json({ error: e.error, message: e.message, ...(e.extra || {}) });
     console.error(`[conversations/${route}] falhou:`, e?.message || e);
     return res.status(500).json({ error: 'internal_error', message: 'Erro ao processar as etiquetas.' });
   }

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Plus, Lock, Loader2, Check, Tag } from 'lucide-react';
+import { X, Plus, Lock, Loader2, Check, Tag, Search } from 'lucide-react';
+import { labelSlug } from '../../api/_lib/labelName.js';
 
 // Chip de etiqueta (cor da paleta). onRemove → mostra o "x".
 export function LabelChip({ label, onRemove, small = false, busy = false }) {
@@ -24,8 +25,12 @@ export function LabelChip({ label, onRemove, small = false, busy = false }) {
 // all: etiquetas disponíveis; current: as aplicadas; onToggle(label, add) → Promise.
 // allowSystem: mostra as de sistema no seletor (conversa individual). As de sistema nunca
 // têm "x" (não dá para ficar sem nenhuma: troca-se pela outra).
-export default function LabelChips({ all, current, onToggle, allowSystem = false, disabled = false, compact = false }) {
+// onCreate(nome) → Promise: "Criar <nome>" no seletor (só para quem gerencia etiquetas; sem
+// onCreate, só aplica as existentes). O nome vira slug; a prévia aparece enquanto digita.
+export default function LabelChips({ all, current, onToggle, onCreate, allowSystem = false, disabled = false, compact = false }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState('');
   const boxRef = useRef(null);
@@ -38,7 +43,20 @@ export default function LabelChips({ all, current, onToggle, allowSystem = false
   }, [open]);
 
   const currentIds = new Set((current || []).map(l => l.id));
-  const options = (all || []).filter(l => allowSystem || l.kind !== 'system');
+  const q = query.trim();
+  const slug = labelSlug(q);
+  const options = (all || []).filter(l => (allowSystem || l.kind !== 'system')
+    && (!q || l.name.toLowerCase().includes(q.toLowerCase()) || (slug && l.name.includes(slug))));
+  const slugExists = !!slug && (all || []).some(l => l.kind === 'user' && l.name === slug);
+
+  async function create() {
+    if (!slug || creating) return;
+    setCreating(true);
+    setError('');
+    try { await onCreate(q); setQuery(''); setOpen(false); }
+    catch (e) { setError(e.message); }
+    setCreating(false);
+  }
 
   async function toggle(label, add) {
     setBusyId(label.id);
@@ -62,10 +80,32 @@ export default function LabelChips({ all, current, onToggle, allowSystem = false
       )}
       {error && <span className="text-[11px] text-red-500 w-full">{error}</span>}
       {open && (
-        <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 w-60 max-h-72 overflow-y-auto">
-          {options.length === 0 ? (
+        <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 w-64 max-h-80 overflow-y-auto">
+          <div className="px-2 pb-1.5 border-b border-gray-50">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-300" />
+              <input autoFocus value={query} maxLength={200} onChange={e => setQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && onCreate && slug && !slugExists) create(); if (e.key === 'Escape') setOpen(false); }}
+                placeholder={onCreate ? 'Buscar ou criar etiqueta…' : 'Buscar etiqueta…'}
+                className="w-full bg-gray-50 border border-gray-100 rounded-lg pl-7 pr-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            </div>
+            {q && slug && slug !== q && (
+              <p className="text-[11px] text-gray-400 mt-1 px-0.5">Nome final: <span className="font-mono text-gray-600">{slug}</span></p>
+            )}
+            {q && !slug && (
+              <p className="text-[11px] text-red-500 mt-1 px-0.5">Nome inválido: use letras ou números.</p>
+            )}
+          </div>
+          {onCreate && slug && !slugExists && (
+            <button type="button" onClick={create} disabled={creating}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 text-left disabled:opacity-50">
+              {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              <span className="truncate">Criar “{slug}”</span>
+            </button>
+          )}
+          {options.length === 0 && !(onCreate && slug && !slugExists) ? (
             <p className="text-xs text-gray-400 px-3 py-2 flex items-center gap-1.5">
-              <Tag className="w-3.5 h-3.5" /> Nenhuma etiqueta. Crie em Configurações → Etiquetas.
+              <Tag className="w-3.5 h-3.5" /> {q ? 'Nenhuma etiqueta encontrada.' : 'Nenhuma etiqueta. Crie em Configurações → Etiquetas.'}
             </p>
           ) : options.map(l => {
             const on = currentIds.has(l.id);

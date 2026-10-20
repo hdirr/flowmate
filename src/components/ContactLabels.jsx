@@ -7,6 +7,7 @@ import LabelChips from './LabelChips';
 // vai em contato (o seletor não mostra). Chave labels desligada → a seção não aparece.
 export default function ContactLabels({ contactId }) {
   const [allLabels, setAllLabels] = useState(null);
+  const [canManage, setCanManage] = useState(false);
   const [current, setCurrent] = useState([]);
 
   useEffect(() => {
@@ -20,6 +21,7 @@ export default function ContactLabels({ contactId }) {
         const mine = await labelsApi.ofContact(contactId);
         if (!alive) return;
         setAllLabels(list.labels);
+        setCanManage(!!list.can_manage);
         setCurrent(mine.labels || []);
       } catch { /* sem etiquetas na tela */ }
     })();
@@ -32,11 +34,19 @@ export default function ContactLabels({ contactId }) {
     window.dispatchEvent(new Event('flowmate:labels')); // listas (Contatos, Chats) recarregam
   }
 
+  // "Criar na hora" (só quem gerencia etiquetas): cria (ou acha a existente) e já aplica.
+  async function create(name) {
+    const id = await labelsApi.createOrGet(name);
+    const list = await labelsApi.list();
+    if (list) setAllLabels(list.labels);
+    await toggle({ id }, true);
+  }
+
   if (!allLabels) return null;
   return (
     <section>
       <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Etiquetas</h3>
-      <LabelChips all={allLabels} current={current} onToggle={toggle} />
+      <LabelChips all={allLabels} current={current} onToggle={toggle} onCreate={canManage ? create : undefined} />
     </section>
   );
 }

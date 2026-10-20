@@ -18,7 +18,7 @@ function wrap(fn, what) {
       return await fn(req, res, ctx, admin);
     } catch (e) {
       if (e instanceof V1Error) {
-        return res.status(e.status).json({ error: e.error, message: e.message, ...(e.missing ? { missing: e.missing } : {}) });
+        return res.status(e.status).json({ error: e.error, message: e.message, ...(e.missing ? { missing: e.missing } : {}), ...(e.extra || {}) });
       }
       console.error(`[v1] ${what} falhou:`, e?.message || e);
       return fail(res, 500, 'internal_error', `Erro ao ${what}.`);

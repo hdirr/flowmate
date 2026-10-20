@@ -300,6 +300,15 @@ Uma **Mensagem**, buscada pelo `message_id` do WhatsApp (o que o `POST /v1/messa
   - **Automação "contato criado" da tela não dispara pela API** (limitação conhecida).
 
 ### `POST /v1/contacts/{id}/tags` (P1-E3)
+> **Mudança com a chave `labels` ligada (2026-10-19):** as tags são gravadas **padronizadas**
+> (o slug das etiquetas): `"VIP"` grava `"vip"`, `"Promoção Natal"` grava `"promocao-natal"`;
+> repetidas depois de padronizar viram uma; `DeleteIfExists` com `"VIP"` remove `"vip"`; tag
+> vazia depois de padronizar → `400 invalid_tags`. `tags`/`added`/`removed` da resposta e do
+> evento saem padronizados. Vale também para `tags` no `POST /v1/contacts`. Com a chave
+> desligada, nada muda (exata, como abaixo). Ainda gravam como vier: `PATCH /v1/contacts`
+> antigo, `POST /v1/leads` e automações/importação da tela (a etiqueta criada pelo gatilho fica
+> com esse nome; o `supabase_labels_slug.sql` normaliza o que já existe).
+
 ```json
 { "tags": ["vip", "retorno"], "operation": "InsertIfNotExists" }
 ```
@@ -456,8 +465,15 @@ continua sendo o estado da conversa, `409 conversation_paused`).
 | `POST /v1/contacts/{id}/labels` | `{ labels: [id ou nome], operation }` → `200 { ok, contact_id, labels, added, removed, tags }` |
 | `POST /v1/conversations/{id}/labels` | mesmo corpo → `200` **Conversa** (com `labels`) + `added`, `removed` |
 
-- **Nome:** 1 a 100 caracteres (pontas aparadas); único na empresa, **exato** (`VIP` ≠ `vip`,
-  como as tags) → repetido (inclusive o nome de uma de sistema) `409 label_exists`.
+- **Nome padronizado (slug, desde 2026-10-19)** em toda criação e edição: minúsculas, sem
+  acento, qualquer caractere fora de `a-z`/`0-9` vira hífen, sem hífen repetido nem nas pontas
+  ("Promoção Natal" → `promocao-natal`; "VIP" → `vip`). A resposta traz o nome final.
+  - Vazio depois de padronizar (ex.: "!!!") ou mais de 100 caracteres → `400 invalid_name`.
+  - Slug que já existe → `409 label_exists` com `label_id` e `name` da existente (use-a).
+  - As de **sistema** mantêm o nome ("Atendimento humano", "Atendimento IA"); uma de usuário
+    `atendimento-ia` é outra etiqueta e não conflita.
+  - Ao aplicar por nome, vale o nome exato **ou** o slug do que você mandar ("Promoção Natal"
+    acha `promocao-natal`).
 - **Cor:** só a paleta (8 cores + cinza padrão `#64748b`): `#64748b`, `#ef4444`, `#f97316`,
   `#f59e0b`, `#22c55e`, `#14b8a6`, `#3b82f6`, `#6366f1`, `#ec4899` (sem diferenciar caixa;
   grava em minúsculas). Fora dela → `400 invalid_color`. Sem `color` → cinza.

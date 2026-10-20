@@ -145,3 +145,35 @@ Vale em até 30 s (cache da chave), sem deploy. Recarregue a tela.
     configurado, cada passo acima gera o seu evento (`source: "user"`).
 
 **Limpeza depois:** nada a limpar se o passo 9 for feito; o estado da conversa volta no passo 7.
+
+## Ajustes (2026-10-18/19, com a chave ligada na empresa do Agadir)
+- **Painéis laterais (`584097e`):** a seção "Etiquetas" virou o componente único
+  `ContactLabels`. Ele aparece no painel do contato (Contatos e Chats) e no painel do lead do
+  Pipeline (etiquetas do contato do lead).
+- **Criar na hora:** o seletor "+ Etiqueta" (painéis do contato e do lead, cabeçalho do Chats)
+  ganhou busca.
+  - Com um nome que ainda não existe, aparece **"Criar <slug>"**: cria em cinza e já aplica.
+  - Se o slug já existe, aplica a existente (o 409 traz `label_id`).
+  - Só quem gerencia etiquetas (`can_manage`) vê "Criar"; os demais só aplicam as existentes.
+- **Nome padronizado (slug)** em toda criação e edição, na tela e na API (`api/_lib/labelName.js`,
+  fonte única):
+  - prévia "Nome final: …" enquanto digita, no seletor e em Configurações;
+  - slug vazio ou com mais de 100 caracteres → 400 com mensagem clara;
+  - sistema mantém o nome; `atendimento-ia` de usuário não conflita;
+  - aplicar por nome acha o slug.
+- **E3 com a chave ligada:** as tags gravam padronizadas (`"VIP"` → `"vip"`), também no
+  `POST /v1/contacts`. Chave desligada: igual a antes. Ainda gravam como vier: `PATCH /v1/contacts`
+  antigo, `POST /v1/leads`, automações e importação da tela (registrado no contrato).
+- **Dados existentes:**
+  - **Empresa do Agadir:** conferida pela `/v1`. Há 1 etiqueta de usuário (`teste-api`), já no
+    padrão: 0 mudam, 0 colisões. Nada a migrar.
+  - **Outras empresas:** `supabase_labels_slug.sql` faz a conferência (PARTE 0, só leitura:
+    nomes de etiqueta e contagens), a migração (PARTE 1: junta colisões, renomeia e padroniza os
+    arrays de tags) e a conferência depois, com rollback. **Não rodado.** Rodar antes de ligar
+    `labels` em outra empresa.
+- **Testes locais:**
+  - 101/101: slug, acento, vazio, colisão → 409 com `label_id`, nome "Atendimento IA" vira
+    `atendimento-ia` sem tocar o sistema, aplicar pelo nome digitado, E3 padronizada, sem
+    repetir e removendo pelo nome digitado;
+  - regressões E0b 24, E0 42, A1 35 e A6 32;
+  - build ok.

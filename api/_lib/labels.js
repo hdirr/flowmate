@@ -3,6 +3,7 @@ import { isFeatureOn } from './features.js';
 import { setConversationState, resumeAutomation, findTwinConversation, STATE } from './conversations.js';
 import { V1Error, isUuid } from './v1/http.js';
 import { DEFAULT_LABEL_COLOR, LABEL_COLORS, paletteColor } from './labelColors.js';
+import { labelSlug } from './labelName.js';
 
 // Etiquetas (PLANO-ETIQUETAS, ET-2) — regra única para a /v1 e para a tela.
 //
@@ -167,11 +168,31 @@ export async function labelMap(admin, companyId) {
 
 // ─── CRUD ───────────────────────────────────────────────────────────────────
 
+// Nome de etiqueta de usuário: sempre o slug (minúsculas, sem acento, hífens). Vazio depois
+// de padronizar → 400.
 function readName(value) {
-  if (typeof value !== 'string' || !value.trim() || value.trim().length > 100) {
-    throw new V1Error(400, 'invalid_name', '"name" precisa ser um texto de 1 a 100 caracteres.');
+  if (typeof value !== 'string' || !value.trim() || value.length > 200) {
+    throw new V1Error(400, 'invalid_name', '"name" precisa ser um texto de 1 a 100 caracteres (até 200 antes de padronizar).');
   }
-  return value.trim();
+  const name = labelSlug(value);
+  if (name.length > 100) throw new V1Error(400, 'invalid_name', '"name" fica com mais de 100 caracteres depois de padronizar.');
+  if (!name) {
+    throw new V1Error(400, 'invalid_name', `"${value.trim()}" fica vazio depois de padronizar: use letras ou números.`);
+  }
+  return name;
+}
+
+// Tags da E3 / POST /v1/contacts com a chave labels ligada: o mesmo slug, sem repetir (ordem
+// mantida). empty: as que ficaram vazias (quem chama responde 400).
+export function normalizeTags(list) {
+  const tags = [];
+  const empty = [];
+  for (const t of list) {
+    const s = labelSlug(t);
+    if (!s) empty.push(t);
+    else if (!tags.includes(s)) tags.push(s);
+  }
+  return { tags, empty };
 }
 function readColor(value) {
   const c = paletteColor(value);
@@ -179,7 +200,15 @@ function readColor(value) {
   return c;
 }
 const isUnique = e => e?.code === '23505' || /duplicate key|unique/i.test(e?.message || '');
-const labelExists = () => new V1Error(409, 'label_exists', 'Já existe uma etiqueta com este nome.');
+// 409 com o id da existente (a tela usa para aplicar a existente em vez de criar outra).
+async function labelExists(admin, companyId, name) {
+  const err = new V1Error(409, 'label_exists', `Já existe uma etiqueta com o nome "${name}".`);
+  try {
+    const { data } = await admin.from('labels').select('id').eq('company_id', companyId).eq('name', name).maybeSingle();
+    if (data?.id) err.extra = { label_id: data.id, name };
+  } catch { /* só o 409 */ }
+  return err;
+}
 const labelNotFound = () => new V1Error(404, 'label_not_found', 'Etiqueta não encontrada.');
 const labelIsSystem = msg => new V1Error(422, 'label_is_system', msg);
 const SYSTEM_NAME_MSG = 'Etiqueta de sistema: o nome não muda e ela não pode ser excluída (as automações e a pausa da conversa dependem dela). Só a cor pode mudar.';
@@ -193,7 +222,7 @@ export async function createLabel(admin, companyId, body, ctx) {
     .insert({ company_id: companyId, name, color, kind: 'user', created_by: ctx.userId || null })
     .select(LABEL_COLS).single();
   if (error) {
-    if (isUnique(error)) throw labelExists();
+    if (isUnique(error)) throw await labelExists(admin, companyId, name);
     throw error;
   }
   const label = toLabel(data);
@@ -204,19 +233,21 @@ export async function createLabel(admin, companyId, body, ctx) {
 export async function updateLabel(admin, companyId, id, body, ctx) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new V1Error(400, 'invalid_body', 'Envie um objeto JSON.');
   if (body.name === undefined && body.color === undefined) throw new V1Error(400, 'invalid_body', 'Envie "name" e/ou "color".');
-  const name = body.name === undefined ? undefined : readName(body.name);
+  if (body.name !== undefined && typeof body.name !== 'string') throw new V1Error(400, 'invalid_name', '"name" precisa ser um texto de 1 a 100 caracteres.');
   const color = body.color === undefined ? undefined : readColor(body.color);
   const before = await getLabel(admin, companyId, id);
   if (!before) throw labelNotFound();
+  // Sistema: o nome é o de sempre (sem slug); mandar o mesmo nome é aceito, outro → 422.
+  if (before.kind === 'system' && body.name !== undefined && body.name.trim() !== before.name) throw labelIsSystem(SYSTEM_NAME_MSG);
+  const name = body.name === undefined || before.kind === 'system' ? undefined : readName(body.name);
   const renaming = name !== undefined && name !== before.name;
-  if (renaming && before.kind === 'system') throw labelIsSystem(SYSTEM_NAME_MSG);
   const recoloring = color !== undefined && color !== before.color;
 
   if (renaming) {
     // Renomeia e troca o nome nos arrays de tags, numa transação (função do banco).
     const { error } = await admin.rpc('rename_label', { p_label: before.id, p_company: companyId, p_name: name });
     if (error) {
-      if (isUnique(error)) throw labelExists();
+      if (isUnique(error)) throw await labelExists(admin, companyId, name);
       if (/label_is_system/.test(error.message || '')) throw labelIsSystem(SYSTEM_NAME_MSG);
       if (/label_not_found/.test(error.message || '')) throw labelNotFound();
       throw error;
@@ -278,7 +309,10 @@ export async function resolveLabelRefs(admin, companyId, refs) {
   const found = [];
   const missing = [];
   for (const r of refs) {
-    const l = all.find(x => x.id === r) || all.find(x => x.name === r);
+    // id, nome exato (as de sistema têm o nome de sempre) ou o slug de uma de usuário
+    // ("Promoção Natal" acha "promocao-natal").
+    const l = all.find(x => x.id === r) || all.find(x => x.name === r)
+      || all.find(x => x.kind === 'user' && x.name === labelSlug(r));
     if (!l) missing.push(r);
     else if (!found.some(f => f.id === l.id)) found.push(l);
   }
