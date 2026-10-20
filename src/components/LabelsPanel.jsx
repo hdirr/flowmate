@@ -5,6 +5,7 @@ import { DEFAULT_LABEL_COLOR } from '../../api/_lib/labelColors.js';
 import { LabelChip } from './LabelChips';
 import { labelSlug } from '../../api/_lib/labelName.js';
 import LabelEditForm, { NamePreview, ColorPicker } from './LabelEditForm';
+import BlockOnHumanToggle from './BlockOnHumanToggle';
 
 // Configurações → Etiquetas (PLANO-ETIQUETAS, ET-4). Só aparece com a chave `labels` ligada.
 // Criar/editar/excluir: quem acessa Configurações (o servidor confere de novo).
@@ -58,6 +59,8 @@ export default function LabelsPanel({ data, onReload }) {
           </button>
         )}
       </div>
+
+      <BlockOnHumanToggle />
 
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>}
 

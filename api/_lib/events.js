@@ -10,8 +10,8 @@
 // feature: chave da empresa (companies.features) sem a qual o evento nunca sai. A tela de
 // Integrações só mostra o evento com a chave ligada; a API devolve requires_feature.
 export const WEBHOOK_EVENTS = [
-  { event: 'message.received',          description: 'Cliente mandou mensagem (só com a conversa em automação)', since: 'v1', available: true,  available_after: null,
-    label: 'Mensagem recebida', hint: 'só quando a conversa está em automação' },
+  { event: 'message.received',          description: 'Cliente mandou mensagem (sem etiquetas: só com a conversa em automação; com a chave labels: sempre, com labels e state)', since: 'v1', available: true,  available_after: null,
+    label: 'Mensagem recebida', hint: 'com etiquetas: sempre, com as etiquetas da conversa' },
   { event: 'message.sent',              description: 'O FlowMate enviou uma mensagem', since: 'v1', available: true,  available_after: null,
     label: 'Mensagem enviada', hint: 'inclui o campo sender (human | automation)' },
   { event: 'contact.created',           description: 'Contato criado', since: 'v1', available: true,  available_after: null,

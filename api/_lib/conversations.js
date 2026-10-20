@@ -119,6 +119,22 @@ export async function resumeAutomation(conversation, companyId, actorUserId, sou
   return changed;
 }
 
+// ET-3 (chave labels ligada): a marcação humana vale também para a GÊMEA (mesmo celular com/sem o
+// 9º dígito). Chamada depois de marcar a própria conversa (envio pela tela, resposta pelo
+// celular). Desligada = nada (hoje a gêmea só conta no 409 e no "devolver"). Nunca derruba o
+// fluxo de mensagens: erro só no log.
+export async function markTwinHuman(companyId, conversation, actorUserId, source, admin = adminClient()) {
+  try {
+    if (!conversation?.remote_jid || !(await isFeatureOn(companyId, 'labels', admin))) return;
+    const { twin, error } = await findTwinConversation(companyId, conversation.remote_jid, admin);
+    if (error) { console.error('[conversations] gêmea não lida; Atendimento humano só na própria conversa'); return; }
+    if (twin && twin.state !== STATE.HUMAN) {
+      const r = await setConversationState(twin.id, STATE.HUMAN, actorUserId, source, admin);
+      if (r?.error) console.error('[conversations] gêmea não marcada:', r.error.message || r.error);
+    }
+  } catch (e) { console.error('[conversations] marcação da gêmea falhou:', e?.message || e); }
+}
+
 // Etiquetas (PLANO-ETIQUETAS, só com a chave labels ligada): conversation.labels_updated quando
 // o estado muda (o gatilho do banco troca a etiqueta de sistema) e na conversa nova. Nunca
 // derruba nem segura o fluxo de mensagens: try/catch e limite de 3 s; chave desligada = só a

@@ -27,5 +27,14 @@ export async function isFeatureOn(companyId, key, admin) {
   return f[key] === true;
 }
 
-// Só para testes.
+// ET-3 (PLANO-ETIQUETAS): o envio AUTOMÁTICO respeita "Atendimento humano" (409)?
+// - chave labels desligada → sim (a trava de sempre, pelo estado da conversa);
+// - labels ligada → só com a trava opcional block_api_send_on_human (padrão: desligada).
+// Leitura defensiva: erro/coluna ausente → {} → labels "desligada" → trava (o lado seguro).
+export async function automationBlockedByHuman(companyId, admin) {
+  const f = await getFeatures(companyId, admin);
+  return f.labels !== true || f.block_api_send_on_human === true;
+}
+
+// Testes e a rota da tela que grava a trava (vale na hora nesta instância).
 export function _clearFeatureCache() { cache.clear(); }

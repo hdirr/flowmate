@@ -1,7 +1,7 @@
 import { adminClient, instanceNameFor, toWhatsAppNumber } from './db.js';
-import { getOrCreateConversation, setConversationState, findTwinConversation, STATE } from './conversations.js';
+import { getOrCreateConversation, setConversationState, findTwinConversation, markTwinHuman, STATE } from './conversations.js';
 import { dispatchWebhook } from './webhooks.js';
-import { isFeatureOn } from './features.js';
+import { isFeatureOn, automationBlockedByHuman } from './features.js';
 import { deliver, findByIdempotencyKey, processOutbound, outboundRetryDelaySeconds, MAX_ATTEMPTS as OUT_MAX_ATTEMPTS, AMBIGUOUS_PREFIX } from './outbound.js';
 
 const EVOLUTION_URL = process.env.EVOLUTION_API_URL;
@@ -76,7 +76,9 @@ export async function sendMessage({ companyId, to, sender, actorUserId = null, c
   // (Grupos pulam esta checagem: `isGroup` é false para chamadas de 1:1.)
   // Conversa gêmea (com/sem o 9º dígito, P1-E0): se QUALQUER uma das duas estiver em human,
   // recusa. As duplicadas não são juntadas aqui (Parte 2).
-  if (!isGroup && sender === STATE.AUTOMATION) {
+  // ET-3: com a chave labels ligada, a trava só vale com block_api_send_on_human (etiqueta é
+  // marcador; quem decide é o n8n). Desligada = como sempre.
+  if (!isGroup && sender === STATE.AUTOMATION && await automationBlockedByHuman(companyId, admin)) {
     const paused = await findPausedConversation(admin, companyId, conversation, remoteJid);
     if (paused) return { error: 'conversation_paused', status: 409, conversationId: paused.id };
   }
@@ -153,6 +155,8 @@ async function finishSent(admin, { companyId, conversation, instanceName, remote
   if (!isGroup && sender === STATE.HUMAN && conversation.state !== STATE.HUMAN) {
     await setConversationState(conversation.id, STATE.HUMAN, actorUserId);
   }
+  // ET-3: com a chave labels, a gêmea também vira "Atendimento humano".
+  if (!isGroup && sender === STATE.HUMAN) await markTwinHuman(companyId, conversation, actorUserId, 'user', admin);
 
   // ─── Espelha no webhook do tenant ───
   // Vai o campo `sender` junto: o consumidor filtra o que é dele.
@@ -236,6 +240,8 @@ export async function retryOutbound(admin, { deadline, deliverImpl } = {}) {
     deadline,
     checkPaused: async (row) => {
       if (String(row.remote_jid).includes('@g.us')) return false;
+      // ET-3: com labels ligada e sem a trava opcional, envio automático não para por humano.
+      if (row.sender === STATE.AUTOMATION && !(await automationBlockedByHuman(row.company_id, admin))) return false;
       return !!(await findPausedConversation(admin, row.company_id, await loadConv(row), row.remote_jid));
     },
     send: async (row) => {

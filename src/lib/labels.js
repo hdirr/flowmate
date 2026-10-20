@@ -39,6 +39,8 @@ export const labelsApi = {
   update: (id, patch) => call(`labels?id=${encodeURIComponent(id)}`, { method: 'PATCH', body: patch }),
   remove: id => call(`labels?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
   map: () => call('label-map'),
+  settings: () => call('label-settings'),
+  setBlockOnHuman: value => call('label-settings', { method: 'POST', body: { block_api_send_on_human: value } }),
   ofContact: contactId => call(`contact-labels?contact_id=${encodeURIComponent(contactId)}`),
   applyContact: (contactId, labelId, op) => call('contact-labels', { method: 'POST', body: { contact_id: contactId, label_id: labelId, op } }),
   ofConversation: to => call(`conversation-labels?to=${encodeURIComponent(to)}`),

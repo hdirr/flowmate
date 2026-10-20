@@ -5,7 +5,7 @@ rotas novas → `404 feature_off`; respostas, tela e fluxo de mensagens iguais a
 **SQL:** nenhum novo. Usa a CF-A PARTE 6 (tabelas, `rename_label`/`delete_label`, gatilhos,
 backfill), já aplicada e conferida.
 **Fora desta etapa:** ET-3 (a trava vira etiqueta: envio sem 409, `block_api_send_on_human`,
-`message.received` sempre). Com a chave ligada, **o 409 continua** ("Atendimento humano" =
+`message.received` sempre). Com a chave ligada, **o 409 continuava** até a ET-3 (ver `ET-3.md`) ("Atendimento humano" =
 `state: human`).
 
 ## O que mudou

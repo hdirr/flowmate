@@ -130,7 +130,8 @@ export async function labelsOfContacts(admin, companyId, contactIds) {
 }
 
 // conversationIds → Map(conversation_id → [etiqueta curta])
-export async function labelsOfConversations(admin, companyId, conversationIds) {
+// raw: true → linhas completas (com system_key), para derivar o state da etiqueta.
+export async function labelsOfConversations(admin, companyId, conversationIds, { raw = false } = {}) {
   const map = new Map();
   const ids = [...new Set((conversationIds || []).filter(Boolean))];
   if (!ids.length) return map;
@@ -143,8 +144,17 @@ export async function labelsOfConversations(admin, companyId, conversationIds) {
     if (!map.has(row.conversation_id)) map.set(row.conversation_id, []);
     map.get(row.conversation_id).push(row.label);
   }
-  for (const [k, v] of map) map.set(k, sortLabels(v).map(brief));
+  for (const [k, v] of map) map.set(k, raw ? sortLabels(v) : sortLabels(v).map(brief));
   return map;
+}
+
+// ET-3: state a partir da etiqueta de sistema ("Atendimento humano" → human; "Atendimento IA"
+// → automation). Sem etiqueta de sistema (grupo, ou gatilho que falhou) → a coluna state.
+export function stateFromLabels(rawLabels, fallback) {
+  const sys = (rawLabels || []).find(l => l.kind === 'system');
+  if (sys?.system_key === 'human') return 'human';
+  if (sys?.system_key === 'ai') return 'automation';
+  return fallback;
 }
 
 // Mapa da tela (lista do Chats e de Contatos): quais etiquetas cada contato e cada conversa

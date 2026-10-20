@@ -13,8 +13,8 @@ Etiquetas (tags de contato hoje; etiquetas de contato e de conversa depois do
 atendimento. Quem trata etiqueta é a automação do cliente (n8n).
 - **Até a virada do `PLANO-ETIQUETAS`:** a única trava é o **estado da conversa** (`human` →
   `409 conversation_paused` no envio automático).
-- **Depois da virada:** a única trava é a opcional `block_api_send_on_human`, por empresa e
-  desligada por padrão.
+- **Depois da virada (ET-3, por empresa: chave `labels` ligada):** a única trava é a opcional
+  `block_api_send_on_human`, por empresa e desligada por padrão. Ver "Trava por etiqueta (ET-3)".
 
 ## Convenções
 
@@ -452,8 +452,33 @@ respostas são as de sempre, sem os campos abaixo.
 
 ### Etiquetas (PLANO-ETIQUETAS · ET-2) — só com a chave `labels` ligada na empresa
 Chave desligada → todas as rotas abaixo respondem **`404 feature_off`** e as demais respostas
-não mudam. Etiqueta é **só marcador**: não trava envio, recebimento nem atendimento (a única trava
-continua sendo o estado da conversa, `409 conversation_paused`).
+não mudam. Etiqueta é **só marcador**: não trava envio, recebimento nem atendimento. A trava do
+envio automático segue a seção abaixo (ET-3).
+
+### Trava por etiqueta (PLANO-ETIQUETAS · ET-3) — com a chave `labels` ligada
+| `labels` | `block_api_send_on_human` | Envio automático (`POST /v1/messages`, `POST /v1/conversations/{id}/messages`, automações, reenvio da fila) em conversa com "Atendimento humano" (nela ou na gêmea) |
+| --- | --- | --- |
+| desligada | (ignorada) | `409 conversation_paused` — como sempre |
+| ligada | desligada (**padrão**) | **envia**. A etiqueta só marca; quem decide é o seu fluxo |
+| ligada | ligada | `409 conversation_paused`, como hoje (inclui a gêmea) |
+
+- **Envio pela tela (atendente) nunca é bloqueado.**
+- **Marcação automática continua** (e, com `labels`, vale também para a **gêmea** — mesmo celular
+  com/sem o 9º dígito): atendente envia pela tela ou o dono responde pelo celular → "Atendimento
+  humano"; "Devolver p/ automação" (tela ou `PATCH` com `state: automation`) → "Atendimento IA".
+- **`message.received` sai sempre** (1:1, mensagem do cliente), também em "Atendimento humano",
+  com `state` e `labels` (etiquetas curtas da conversa) no payload. Na caixa de entrada durável,
+  se as etiquetas não puderem ser lidas, o evento é tentado de novo; no caminho antigo sai com
+  `labels: null` ("não sei": não responda). Sem a chave `labels`: como sempre (só em automação,
+  sem esses campos).
+- **`state`** continua em toda resposta de Conversa, **derivado da etiqueta de sistema**
+  ("Atendimento humano" → `human`; "Atendimento IA" → `automation`). É o da própria conversa: a
+  trava (quando ligada) considera também a **gêmea**, então uma conversa com `state: automation`
+  pode dar 409 se a gêmea estiver em humano. O filtro `?state=` da lista usa o estado gravado. `PATCH
+  /v1/conversations/{id}` com `state` continua aceito.
+- **A trava é lida com cuidado:** se a leitura das chaves da empresa falhar, o envio automático
+  trata como **travado** (409), o lado seguro.
+- Ligar/desligar: Configurações → Etiquetas (só admin); vale em até 30 s.
 
 | Rota | O que faz |
 | --- | --- |

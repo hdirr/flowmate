@@ -200,8 +200,8 @@ O mesmo exemplo aparece na tela de Integrações, já com o seu segredo.
 
 ## 5c. Etiquetas (quando a chave `labels` for ligada na sua empresa; você será avisado)
 Desligada, as rotas abaixo respondem **404 `feature_off`** e nada mais muda. Ligada:
-- **Etiquetas são só marcadores.** Ligar a chave **não** tira o 409: a trava continua sendo o
-  estado da conversa ("Atendimento humano" = `state: human`). Ver 6b.
+- **Etiquetas são só marcadores, e ligar a chave TIRA o 409** (a menos que a empresa ligue a
+  trava opcional). Ver 6b — **seu fluxo precisa conferir "Atendimento humano" antes de responder**.
 - **Rotas:**
 
   | Rota | Corpo | Observações |
@@ -241,38 +241,41 @@ Desligada, as rotas abaixo respondem **404 `feature_off`** e nada mais muda. Lig
   `conversation.state_changed` e o `contact.tags_updated` continuam saindo junto.
 
 ## 6. Regras de ouro
-1. **409 `conversation_paused` é esperado:** um humano assumiu a conversa. Não reenvie.
+1. **409 `conversation_paused` é esperado:** um humano assumiu a conversa. Não reenvie. (Com
+   etiquetas ligadas, só acontece se a empresa ligou a trava — ver 6b.)
 2. **Deduplique por `event_id`.** O mesmo evento pode chegar duas vezes.
 3. **Não reaja aos próprios envios:** o `message.sent` com `sender: "automation"` é seu.
-4. **Conversa em `human` não gera `message.received`** e **não volta sozinha** para
-   `automation`. Retome com `PATCH /conversations/{id}` `{ "state": "automation" }` ou pela tela.
+4. **Sem etiquetas, conversa em `human` não gera `message.received`** (com etiquetas, gera — ver
+   6b) e **não volta sozinha** para `automation`. Retome com `PATCH /conversations/{id}` `{ "state": "automation" }` ou pela tela.
    Assine `conversation.state_changed` para saber quando um humano assume ou devolve.
 5. **Idempotência de lead:** use sempre o mesmo `external_id`.
 6. **Sem limite de requisições ainda, mas seja gentil:** no máximo algumas por segundo.
 
-## 6b. Mudança anunciada: a trava vira etiqueta (ainda NÃO ativa)
-O FlowMate vai deixar de **travar** o envio em conversa com atendente e passar a só **marcar** a
-conversa com etiquetas, como a Helena: **"Atendimento humano"** ou **"Atendimento IA"** (sempre
-uma das duas). Quem decide se responde passa a ser **o seu fluxo do n8n**.
+## 6b. A trava vira etiqueta (ET-3) — vale quando a chave `labels` está ligada na sua empresa
+O FlowMate deixa de **travar** o envio em conversa com atendente e passa a só **marcar** a
+conversa: **"Atendimento humano"** ou **"Atendimento IA"** (sempre uma das duas). **Quem decide
+se responde é o seu fluxo do n8n.**
 
-- **Hoje nada mudou:** continua valendo o 409 `conversation_paused` e as regras acima. A gestão de
-  etiquetas (5c) **não** muda isso: com ela, a conversa já traz `labels` e "Atendimento humano"
-  equivale a `state: human`, mas o 409 continua.
-- **Quando a virada da trava for ligada na sua empresa** (etapa seguinte; você será avisado antes):
-  - o envio pela API **não é mais recusado** por causa da etiqueta. Existe uma opção por empresa
-    para manter o bloqueio, desligada por padrão;
-  - a conversa passa a trazer `labels` (e continua trazendo `state`, derivado da etiqueta);
-  - saem os eventos `conversation.labels_updated` e `contact.labels_updated`. O
-    `conversation.state_changed` continua por um tempo.
-- **Padrão recomendado, já a partir de hoje:** **antes de responder, confira se a conversa está
-  com atendente.**
-  1. `GET /conversations/{id}` (o `conversation_id` vem no `message.received`).
-  2. Não responda se:
-     - **hoje:** `state` for `"human"`;
-     - **depois da mudança:** `labels` tiver **"Atendimento humano"**.
-  3. Trate **503** como "não sei": não responda e tente de novo depois.
+- **Com a chave `labels` ligada:**
+  - o envio pela API/automação **não é mais recusado** por "Atendimento humano";
+  - a empresa pode ligar a trava opcional **"Bloquear envio da automação em conversas com
+    Atendimento humano"** (Configurações → Etiquetas, só admin; **desligada por padrão**). Ligada
+    = 409 `conversation_paused` como antes, inclusive na gêmea;
+  - `message.received` chega **sempre**, também em "Atendimento humano", com `state` e
+    `labels` no payload;
+  - a marcação continua automática: atendente responde pela tela ou pelo celular → "Atendimento
+    humano" (na conversa e na gêmea); "Devolver p/ automação" → "Atendimento IA";
+  - saem `conversation.labels_updated` (e o `conversation.state_changed`, por um tempo).
+- **Sem a chave:** nada muda (409 e `message.received` só em automação).
+- **Padrão recomendado (obrigatório com a trava desligada): antes de responder, confira
+  "Atendimento humano".**
+  1. Use o `labels` que vem no próprio `message.received` (ou `GET /conversations/{id}`, que
+     traz `labels` e `state` derivado da etiqueta — melhor logo antes de enviar, porque o
+     atendente pode ter assumido enquanto o seu fluxo pensava).
+  2. **Não responda** se `labels` tiver **"Atendimento humano"** (ou `state` for `"human"`).
+  3. `labels: null` ou **503** = "não sei": não responda e tente de novo depois.
 
-  Quem já faz essa checagem não precisa mudar nada quando a etiqueta for ligada.
+  Quem já fazia essa checagem não precisa mudar nada.
 - O desenho completo está em `docs/roadmap-api/PLANO-ETIQUETAS.md`.
 
 ## 7. Como reportar problemas

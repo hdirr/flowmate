@@ -3,7 +3,8 @@ import { V1Error, fail, readPaging, paged, readDate, isUuid, queryParam, isRange
 import { MESSAGE_COLS, toMessage } from './messages.js';
 import { setConversationState, resumeAutomation } from '../conversations.js';
 import { sendMessage } from '../sendMessage.js';
-import { labelsEnabled, labelsOfConversations } from '../labels.js';
+import { labelsEnabled, labelsOfConversations, stateFromLabels, brief } from '../labels.js';
+import { automationBlockedByHuman } from '../features.js';
 
 // Tipo e telefone a partir do JID. Grupo = @g.us. @lid (identificador novo do WhatsApp) não é
 // telefone. phone só sai para @s.whatsapp.net; o resto (grupo, @lid, formato desconhecido) → null.
@@ -50,8 +51,14 @@ function toConversation(c, contacts) {
 // (etiquetas curtas: id, name, color, kind). Desligada = resposta igual à de antes.
 export async function toConversationWithLabels(admin, companyId, convs, labelsOn) {
   const contacts = await loadContacts(admin, companyId, convs);
-  const labels = labelsOn ? await labelsOfConversations(admin, companyId, convs.map(c => c.id)) : null;
-  return convs.map(c => ({ ...toConversation(c, contacts), ...(labels ? { labels: labels.get(c.id) || [] } : {}) }));
+  const labels = labelsOn ? await labelsOfConversations(admin, companyId, convs.map(c => c.id), { raw: true }) : null;
+  return convs.map(c => {
+    const conv = toConversation(c, contacts);
+    if (!labels) return conv;
+    const raw = labels.get(c.id) || [];
+    // ET-3: state continua na resposta, derivado da etiqueta de sistema (compatibilidade).
+    return { ...conv, state: stateFromLabels(raw, conv.state), labels: raw.map(brief) };
+  });
 }
 
 function readEnum(query, name, allowed) {
@@ -214,7 +221,8 @@ export async function sendConversationMessage(req, res, { companyId, params }) {
     return fail(res, 422, 'unsupported_jid', 'Esta conversa não aceita envio pela API (JID não suportado).');
   }
   // Pausa checada aqui também (antes do sendMessage), para nunca chegar perto da Evolution.
-  if (!isGroup && c.state === 'human') {
+  // ET-3: com a chave labels ligada, só com a trava opcional block_api_send_on_human.
+  if (!isGroup && c.state === 'human' && await automationBlockedByHuman(companyId, admin)) {
     return res.status(409).json({ error: 'conversation_paused', message: 'A conversa está com um humano. Nada foi enviado.', conversation_id: c.id });
   }
 

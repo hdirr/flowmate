@@ -1,5 +1,7 @@
-import { getOrCreateConversation, setConversationState, isKnownOutgoing, STATE } from './conversations.js';
+import { getOrCreateConversation, setConversationState, isKnownOutgoing, markTwinHuman, STATE } from './conversations.js';
 import { dispatchWebhook } from './webhooks.js';
+import { isFeatureOn } from './features.js';
+import { labelsOfConversations } from './labels.js';
 import { parseMessage } from './whatsappParse.js';
 import { matchEcho } from './outbound.js';
 
@@ -86,6 +88,7 @@ export async function handleIncomingMessageLegacy(db, { companyId, instanceName,
       await setConversationState(conversation.id, STATE.HUMAN, null, null, db); // null = veio do celular
       conversation.state = STATE.HUMAN;
     }
+    if (!known && conversation) await markTwinHuman(companyId, conversation, null, 'phone', db); // ET-3 (só com labels)
   }
 
   // 3) Grava no log (fonte da verdade)
@@ -113,7 +116,17 @@ export async function handleIncomingMessageLegacy(db, { companyId, instanceName,
   // 4) Repassa pro consumidor SÓ quando a conversa está em automação e é 1:1.
   //    Em 'human', a automação não precisa nem saber que a mensagem existiu.
   //    Em grupos não repassamos (o robô só ENVIA para grupos).
-  if (!isGroup && !fromMe && !alreadyLogged && conversation?.state === STATE.AUTOMATION) {
+  //    ET-3: com a chave labels ligada sai SEMPRE (também em "Atendimento humano"), com labels e
+  //    state — quem decide se responde é o n8n.
+  const labelsOn = !isGroup && !fromMe && !alreadyLogged && conversation ? await isFeatureOn(companyId, 'labels', db) : false;
+  if (!isGroup && !fromMe && !alreadyLogged && conversation && (labelsOn || conversation.state === STATE.AUTOMATION)) {
+    let extra = {};
+    if (labelsOn) {
+      let labels = null; // leitura falhou → null (o n8n trata como "não sei")
+      try { labels = (await labelsOfConversations(db, companyId, [conversation.id])).get(conversation.id) || []; }
+      catch (e) { console.error('[webhook] etiquetas da conversa não lidas:', e?.message || e); }
+      extra = { state: conversation.state, labels };
+    }
     await dispatchWebhook(companyId, 'message.received', {
       conversation_id: conversation.id,
       contact_id: conversation.contact_id,
@@ -123,6 +136,7 @@ export async function handleIncomingMessageLegacy(db, { companyId, instanceName,
       content,
       message_id: messageId,
       timestamp,
+      ...extra,
     });
   }
 }
@@ -186,6 +200,8 @@ export async function processIncomingMessage(db, { companyId, instanceName, msg,
       if (r?.error) throw new Error(`pausa não gravada: ${r.error.message}`);
       conversation.state = STATE.HUMAN;
     }
+    // ET-3 (só com labels): a gêmea também. Mesma regra do R5 (não desfaz um "devolver" posterior).
+    if (!known && !resumedAfter(conversation, timestamp)) await markTwinHuman(companyId, conversation, null, 'phone', db);
   }
 
   // 3) Grava. Já existe (23505: reenvio, sync ou reconciliação) = sucesso.
@@ -217,7 +233,17 @@ export async function processIncomingMessage(db, { companyId, instanceName, msg,
 
   // 4) message.received (regra de hoje: 1:1, não fromMe, conversa em automation), com
   //    event_id fixo = id do evento de entrada.
-  if (!isGroup && !fromMe && conversation.state === STATE.AUTOMATION) {
+  //    ET-3: com a chave labels ligada sai SEMPRE, com labels e state (leitura das etiquetas
+  //    falhou → tenta de novo; o evento fica guardado).
+  const labelsOn = !isGroup && !fromMe ? await isFeatureOn(companyId, 'labels', db) : false;
+  if (!isGroup && !fromMe && (labelsOn || conversation.state === STATE.AUTOMATION)) {
+    let extra = {};
+    if (labelsOn) {
+      let labels;
+      try { labels = (await labelsOfConversations(db, companyId, [conversation.id])).get(conversation.id) || []; }
+      catch (e) { throw new Error(`etiquetas da conversa não lidas: ${e?.message || e}`); }
+      extra = { state: conversation.state, labels };
+    }
     await dispatch(companyId, 'message.received', {
       conversation_id: conversation.id,
       contact_id: conversation.contact_id,
@@ -227,6 +253,7 @@ export async function processIncomingMessage(db, { companyId, instanceName, msg,
       content,
       message_id: messageId,
       timestamp,
+      ...extra,
     }, { eventId });
   }
   return { ok: true, duplicate: insErr?.code === '23505' };

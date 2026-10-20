@@ -1,6 +1,7 @@
 import { adminClient, resolveUser, jidFor, twinJid } from '../_lib/db.js';
 import { getOrCreateConversation, setConversationState, resumeAutomation, STATE } from '../_lib/conversations.js';
 import { permissionChecker } from '../_lib/permissions.js';
+import { getFeatures, _clearFeatureCache } from '../_lib/features.js';
 import { V1Error, isUuid } from '../_lib/v1/http.js';
 import {
   requireLabels, listLabels, createLabel, updateLabel, deleteLabel, labelMap, getLabel,
@@ -25,7 +26,7 @@ export default async function handler(req, res) {
   let route = Array.isArray(segments) ? segments.join('/') : (segments || '');
   if (!route) route = (req.url || '').split('?')[0].replace(/^\/(api\/)?conversations\//, '').replace(/\/+$/, '');
 
-  const routes = { state: handleState, labels: handleLabels, 'label-map': handleLabelMap, 'contact-labels': handleContactLabels, 'conversation-labels': handleConversationLabels };
+  const routes = { state: handleState, labels: handleLabels, 'label-map': handleLabelMap, 'contact-labels': handleContactLabels, 'conversation-labels': handleConversationLabels, 'label-settings': handleLabelSettings };
   const fn = routes[route];
   if (!fn) return res.status(404).json({ error: 'not_found' });
 
@@ -136,6 +137,33 @@ async function handleLabels(req, res, who, admin) {
   }
   const r = await deleteLabel(admin, who.companyId, id, USER(who));
   return res.status(200).json({ ok: true, id: r.label.id, contacts_removed: r.contacts_removed, conversations_removed: r.conversations_removed });
+}
+
+// ─── trava opcional (ET-3): block_api_send_on_human em companies.features ───
+//   GET  label-settings                              → { block_api_send_on_human, can_change }
+//   POST label-settings { block_api_send_on_human }  → só admin (a tela não grava companies)
+async function handleLabelSettings(req, res, who, admin) {
+  const { data: profile, error } = await admin.from('user_profiles')
+    .select('role').eq('id', who.userId).eq('company_id', who.companyId).maybeSingle();
+  if (error) throw error;
+  const isAdmin = profile?.role === 'admin';
+  if (req.method === 'GET') {
+    const f = await getFeatures(who.companyId, admin);
+    return res.status(200).json({ block_api_send_on_human: f.block_api_send_on_human === true, can_change: isAdmin });
+  }
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
+  if (!isAdmin) throw forbidden('Só o admin altera a trava.');
+  const value = req.body?.block_api_send_on_human;
+  if (typeof value !== 'boolean') throw new V1Error(400, 'invalid_field', '"block_api_send_on_human" precisa ser true ou false.');
+  // Lê e grava o jsonb inteiro (mantém as outras chaves). Leitura falhou → não grava.
+  const { data: c, error: rErr } = await admin.from('companies').select('features').eq('id', who.companyId).maybeSingle();
+  if (rErr || !c) throw rErr || new Error('empresa não encontrada');
+  const features = { ...(c.features && typeof c.features === 'object' && !Array.isArray(c.features) ? c.features : {}), block_api_send_on_human: value };
+  const { error: uErr } = await admin.from('companies').update({ features }).eq('id', who.companyId);
+  if (uErr) throw uErr;
+  _clearFeatureCache(); // nesta instância vale na hora; nas outras, em até 30 s (cache da chave)
+  console.log(`[labels] block_api_send_on_human=${value} (empresa ${who.companyId.slice(0, 8)}, por ${who.userId.slice(0, 8)})`);
+  return res.status(200).json({ block_api_send_on_human: value, can_change: true });
 }
 
 async function handleLabelMap(req, res, who, admin) {
