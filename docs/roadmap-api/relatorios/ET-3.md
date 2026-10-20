@@ -117,3 +117,12 @@ update companies set features = features || '{"block_api_send_on_human": true}' 
    `state: "human"` e `labels` contendo "Atendimento humano".
 5. **Ligue a trava** e repita o passo 3 → **409 `conversation_paused`**. Desligue de novo.
 6. **"Devolver p/ automação":** a etiqueta passa a "Atendimento IA" na conversa e na gêmea.
+
+## Produção (`9d14901`, deploy confirmado pelo status do GitHub)
+| Caso | Resultado |
+| --- | --- |
+| Smoke | **idêntico** (não envia mensagem) |
+| `GET /v1/conversations/{id}` da conversa de teste (em humano) | `state: "human"` + etiqueta "Atendimento humano" |
+| `/api/conversations/label-settings` e `/state` sem login | 401 / 401 |
+| `GET /v1/webhook-events` | descrição nova do `message.received` |
+| Envio real e `message.received` | **não testado aqui** (roteiro acima, com o Agadir) |
