@@ -927,7 +927,8 @@ export default function Chats() {
                 )}
                 <LabelChips all={labels} current={pickLabels(labels, [...convLabelIds(selected)])}
                   onToggle={toggleConvLabel} allowSystem={!selected.isGroup} compact
-                  onCreate={labelsCanManage ? createConvLabel : undefined} />
+                  onCreate={labelsCanManage ? createConvLabel : undefined}
+                  onEdited={labelsCanManage ? () => window.dispatchEvent(new Event('flowmate:labels')) : undefined} />
                 {!selected.isGroup && convState?.state === 'human' && (
                   <button onClick={resumeAutomation} disabled={resuming}
                     title="Devolver esta conversa para a automação (Atendimento IA)"

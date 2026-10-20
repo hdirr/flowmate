@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Plus, Lock, Loader2, Check, Tag, Search } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { X, Plus, Lock, Loader2, Check, Tag, Search, Pencil } from 'lucide-react';
 import { labelSlug } from '../../api/_lib/labelName.js';
+import LabelEditForm from './LabelEditForm';
 
-// Chip de etiqueta (cor da paleta). onRemove → mostra o "x".
-export function LabelChip({ label, onRemove, small = false, busy = false }) {
+// Chip de etiqueta (cor da paleta). onRemove → mostra o "x"; onEdit → mostra o lápis.
+export function LabelChip({ label, onRemove, onEdit, small = false, busy = false }) {
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full font-medium border max-w-[10rem] ${small ? 'text-[10px] px-1.5 py-0' : 'text-xs px-2 py-0.5'}`}
@@ -11,6 +13,12 @@ export function LabelChip({ label, onRemove, small = false, busy = false }) {
       title={label.kind === 'system' ? `${label.name} (etiqueta de sistema)` : label.name}>
       <span className={`rounded-full shrink-0 ${small ? 'w-1.5 h-1.5' : 'w-2 h-2'}`} style={{ background: label.color }} />
       <span className="truncate">{label.name}</span>
+      {onEdit && (
+        <button type="button" onClick={e => { e.stopPropagation(); onEdit(label); }}
+          title={label.kind === 'system' ? `Mudar a cor de "${label.name}"` : `Editar "${label.name}"`} className="hover:opacity-70 opacity-60">
+          <Pencil className="w-2.5 h-2.5" />
+        </button>
+      )}
       {onRemove && (
         <button type="button" onClick={e => { e.stopPropagation(); onRemove(label); }} disabled={busy}
           title={`Remover "${label.name}"`} className="hover:opacity-70 disabled:opacity-40 -mr-0.5">
@@ -27,8 +35,11 @@ export function LabelChip({ label, onRemove, small = false, busy = false }) {
 // têm "x" (não dá para ficar sem nenhuma: troca-se pela outra).
 // onCreate(nome) → Promise: "Criar <nome>" no seletor (só para quem gerencia etiquetas; sem
 // onCreate, só aplica as existentes). O nome vira slug; a prévia aparece enquanto digita.
-export default function LabelChips({ all, current, onToggle, onCreate, allowSystem = false, disabled = false, compact = false }) {
+// onEdited(etiqueta) → Promise: lápis nos chips e no seletor, com o MESMO formulário de
+// Configurações (LabelEditForm). Só para quem gerencia etiquetas; sistema só troca a cor.
+export default function LabelChips({ all, current, onToggle, onCreate, onEdited, allowSystem = false, disabled = false, compact = false }) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState(null);
@@ -70,6 +81,7 @@ export default function LabelChips({ all, current, onToggle, onCreate, allowSyst
     <div className="relative flex flex-wrap items-center gap-1" ref={boxRef}>
       {(current || []).map(l => (
         <LabelChip key={l.id} label={l} small={compact} busy={busyId === l.id}
+          onEdit={!disabled && onEdited ? lab => { setOpen(false); setEditing(lab); } : undefined}
           onRemove={!disabled && l.kind !== 'system' ? () => toggle(l, false) : undefined} />
       ))}
       {!disabled && (
@@ -111,19 +123,39 @@ export default function LabelChips({ all, current, onToggle, onCreate, allowSyst
             const on = currentIds.has(l.id);
             const locked = l.kind === 'system' && on; // sistema aplicada: não sai, só troca
             return (
-              <button key={l.id} type="button" disabled={busyId === l.id || locked}
-                onClick={() => toggle(l, !on)}
-                title={locked ? 'Etiqueta de sistema: para trocar, aplique a outra' : undefined}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 text-left disabled:cursor-default">
-                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: l.color }} />
-                <span className="flex-1 truncate">{l.name}</span>
-                {l.kind === 'system' && <Lock className="w-3 h-3 text-gray-300" />}
-                {busyId === l.id ? <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
-                  : on ? <Check className="w-3.5 h-3.5 text-blue-500" /> : null}
-              </button>
+              <div key={l.id} className="flex items-center hover:bg-gray-50">
+                <button type="button" disabled={busyId === l.id || locked}
+                  onClick={() => toggle(l, !on)}
+                  title={locked ? 'Etiqueta de sistema: para trocar, aplique a outra' : undefined}
+                  className="flex-1 min-w-0 flex items-center gap-2 pl-3 pr-1 py-1.5 text-sm text-gray-700 text-left disabled:cursor-default">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: l.color }} />
+                  <span className="flex-1 truncate">{l.name}</span>
+                  {l.kind === 'system' && <Lock className="w-3 h-3 text-gray-300" />}
+                  {busyId === l.id ? <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+                    : on ? <Check className="w-3.5 h-3.5 text-blue-500" /> : null}
+                </button>
+                {onEdited && (
+                  <button type="button" onClick={() => { setOpen(false); setEditing(l); }}
+                    title={l.kind === 'system' ? 'Mudar a cor' : 'Editar nome e cor'}
+                    className="px-2 py-1.5 text-gray-300 hover:text-blue-600">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
+      )}
+      {editing && createPortal(
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4"
+          onMouseDown={e => { if (e.target === e.currentTarget) setEditing(null); }}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5">
+            <h3 className="font-semibold text-gray-800 mb-3">{editing.kind === 'system' ? 'Cor da etiqueta' : 'Editar etiqueta'}</h3>
+            <LabelEditForm label={editing} onCancel={() => setEditing(null)}
+              onSaved={async updated => { setEditing(null); if (updated) { try { await onEdited(updated); } catch { /* já salvo */ } } }} />
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

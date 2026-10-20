@@ -1,36 +1,14 @@
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, Lock, Loader2, Check, Info } from 'lucide-react';
+import { Plus, Pencil, Trash2, Lock, Loader2, Info } from 'lucide-react';
 import { labelsApi } from '../lib/labels';
-import { LABEL_COLORS, DEFAULT_LABEL_COLOR } from '../../api/_lib/labelColors.js';
+import { DEFAULT_LABEL_COLOR } from '../../api/_lib/labelColors.js';
 import { LabelChip } from './LabelChips';
 import { labelSlug } from '../../api/_lib/labelName.js';
-
-// Prévia do nome final (slug) enquanto digita.
-function NamePreview({ value }) {
-  const v = value.trim();
-  if (!v) return null;
-  const s = labelSlug(v);
-  if (!s) return <p className="text-xs text-red-500">Nome inválido: use letras ou números.</p>;
-  return <p className="text-xs text-gray-400">Nome final: <span className="font-mono text-gray-600">{s}</span></p>;
-}
+import LabelEditForm, { NamePreview, ColorPicker } from './LabelEditForm';
 
 // Configurações → Etiquetas (PLANO-ETIQUETAS, ET-4). Só aparece com a chave `labels` ligada.
 // Criar/editar/excluir: quem acessa Configurações (o servidor confere de novo).
 // Sistema ("Atendimento humano"/"Atendimento IA"): só a cor muda.
-
-function ColorPicker({ value, onChange }) {
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {LABEL_COLORS.map(c => (
-        <button key={c.color} type="button" onClick={() => onChange(c.color)} title={c.name}
-          className={`w-6 h-6 rounded-full flex items-center justify-center transition-transform ${value === c.color ? 'ring-2 ring-offset-1 ring-gray-400 scale-110' : 'hover:scale-110'}`}
-          style={{ background: c.color }}>
-          {value === c.color && <Check className="w-3.5 h-3.5 text-white" />}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 
@@ -40,7 +18,7 @@ export default function LabelsPanel({ data, onReload }) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState(DEFAULT_LABEL_COLOR);
-  const [editing, setEditing] = useState(null); // { id, name, color, kind }
+  const [editing, setEditing] = useState(null); // id da etiqueta em edição
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -56,15 +34,6 @@ export default function LabelsPanel({ data, onReload }) {
     if (!labelSlug(newName)) return;
     const ok = await run(() => labelsApi.create(newName.trim(), newColor));
     if (ok) { setCreating(false); setNewName(''); setNewColor(DEFAULT_LABEL_COLOR); }
-  }
-
-  async function saveEdit() {
-    const before = labels.find(l => l.id === editing.id);
-    const patch = {};
-    if (editing.kind !== 'system' && labelSlug(editing.name) !== before.name) patch.name = editing.name.trim();
-    if (editing.color !== before.color) patch.color = editing.color;
-    if (!Object.keys(patch).length) { setEditing(null); return; }
-    if (await run(() => labelsApi.update(editing.id, patch))) setEditing(null);
   }
 
   async function remove(l) {
@@ -115,32 +84,13 @@ export default function LabelsPanel({ data, onReload }) {
 
       <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
         {labels.map(l => {
-          const isEditing = editing?.id === l.id;
+          const isEditing = editing === l.id;
           const system = l.kind === 'system';
           return (
             <div key={l.id} className="px-4 py-3">
               {isEditing ? (
-                <div className="space-y-3">
-                  <input value={editing.name} maxLength={200} disabled={system}
-                    onChange={e => setEditing(x => ({ ...x, name: e.target.value }))}
-                    onKeyDown={e => e.key === 'Enter' && saveEdit()}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50 disabled:text-gray-400" />
-                  {!system && <NamePreview value={editing.name} />}
-                  {system && (
-                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 flex gap-1.5">
-                      <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      Etiqueta de sistema: o nome não muda e ela não pode ser excluída, porque as automações e a pausa da conversa dependem dela. Só a cor pode mudar.
-                    </p>
-                  )}
-                  <ColorPicker value={editing.color} onChange={color => setEditing(x => ({ ...x, color }))} />
-                  <div className="flex justify-end gap-2">
-                    <button onClick={() => setEditing(null)} className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50">Cancelar</button>
-                    <button onClick={saveEdit} disabled={busy || (!system && !labelSlug(editing.name))}
-                      className="bg-blue-600 text-white rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5">
-                      {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Salvar
-                    </button>
-                  </div>
-                </div>
+                <LabelEditForm label={l} onCancel={() => setEditing(null)}
+                  onSaved={async () => { setEditing(null); await onReload(); }} />
               ) : (
                 <div className="flex items-center gap-3">
                   <LabelChip label={l} />
@@ -155,7 +105,7 @@ export default function LabelsPanel({ data, onReload }) {
                   </span>
                   {canManage && (
                     <div className="flex items-center gap-1">
-                      <button onClick={() => { setEditing({ id: l.id, name: l.name, color: l.color, kind: l.kind }); setError(''); }}
+                      <button onClick={() => { setEditing(l.id); setError(''); }}
                         title={system ? 'Mudar a cor' : 'Editar'} className="p-1.5 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50">
                         <Pencil className="w-4 h-4" />
                       </button>

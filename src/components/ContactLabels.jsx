@@ -42,11 +42,21 @@ export default function ContactLabels({ contactId }) {
     await toggle({ id }, true);
   }
 
+  // Lápis (só quem gerencia): editou nome/cor → recarrega a lista e as do contato.
+  async function edited() {
+    window.dispatchEvent(new Event('flowmate:labels'));
+    try {
+      const [list, mine] = await Promise.all([labelsApi.list(), labelsApi.ofContact(contactId)]);
+      if (list) setAllLabels(list.labels);
+      setCurrent(mine.labels || []);
+    } catch { /* a edição já foi salva; a seção atualiza ao reabrir */ }
+  }
+
   if (!allLabels) return null;
   return (
     <section>
       <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Etiquetas</h3>
-      <LabelChips all={allLabels} current={current} onToggle={toggle} onCreate={canManage ? create : undefined} />
+      <LabelChips all={allLabels} current={current} onToggle={toggle} onCreate={canManage ? create : undefined} onEdited={canManage ? edited : undefined} />
     </section>
   );
 }
