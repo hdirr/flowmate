@@ -191,3 +191,16 @@ Evolution):**
 **Desligar:** tirar `DATA_RETENTION` (ou mudar o valor) e redeploy. Volta a limpeza antiga de
 30 dias da caixa de entrada.
 **Logs detalhados para diagnóstico:** `DEBUG_LOGS=on` e redeploy; tirar depois.
+
+## Produção (`22da0cc`, deploy confirmado pelo status do GitHub)
+| Caso | Resultado |
+| --- | --- |
+| `GET /api/whatsapp/jobs` | 405 |
+| `POST /api/whatsapp/jobs` (sem `JOBS_SECRET`) | 503 |
+| `GET /api/whatsapp/health?probe=1` | 200 |
+| `GET /api/whatsapp/connect` / `qualquer_coisa` | 405 / 404 |
+| Smoke | **idêntico** ao de antes do deploy |
+
+**Revisor:** aprovado com ressalvas, nenhuma de código. (1) Contrato: a `Idempotency-Key` vale
+30 dias com a retenção ligada; corrigido no mesmo commit (`20-contrato-api-v1.md`). (2) HANDOFF
+citava `[synctrace]`; corrigido no commit de docs.
