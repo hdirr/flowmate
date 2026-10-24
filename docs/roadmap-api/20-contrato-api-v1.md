@@ -431,6 +431,9 @@ respostas são as de sempre, sem os campos abaixo.
     header é ignorado, como sempre foi);
   - a mesma chave na mesma empresa devolve o resultado do primeiro envio (`duplicate: true`) e
     **não envia de novo**, mesmo que a conversa tenha sido pausada depois.
+  - a chave vale por **30 dias** quando a retenção de dados estiver ligada no servidor
+    (`DATA_RETENTION=on`; hoje desligada, a chave não expira). Depois disso, a mesma chave envia
+    de novo.
 - **Respostas:**
   - `200 { ok, message_id, conversation_id, outbound_id, delivery: "sent" }`: entregue à Evolution.
   - **`202 { ok, message_id: null, conversation_id, outbound_id, delivery: "pending" }`**: a

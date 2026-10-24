@@ -4,6 +4,7 @@ import { isFeatureOn } from './features.js';
 import { labelsOfConversations } from './labels.js';
 import { parseMessage } from './whatsappParse.js';
 import { matchEcho } from './outbound.js';
+import { debug } from './log.js';
 
 // Recebimento de mensagens da Evolution (webhook). Dois caminhos:
 //
@@ -59,7 +60,7 @@ export async function handleIncomingMessageLegacy(db, { companyId, instanceName,
 
   const parsed = parseMessage(msg.message);
   const content = parsed.content || msg.text || '[mídia]';
-  console.log(`[webhook] msg jid=${remoteJid} id=${messageId} type=${parsed.type} fromMe=${fromMe} dup=${alreadyLogged}`);
+  debug(`[webhook] msg jid=${remoteJid} id=${messageId} type=${parsed.type} fromMe=${fromMe} dup=${alreadyLogged}`);
 
   const contactName = isGroup
     ? (msg.pushName || (participantJid ? participantJid.replace(/@.*/, '') : remoteJid.replace(/@.*/, '')))
@@ -366,11 +367,12 @@ export async function processEvent(db, ev, dispatch) {
 }
 
 // Processador (A3): pega os vencidos (claim_inbound_events já soma a tentativa) até o prazo.
-export async function processDueEvents(db, { limit = 50, deadline = Date.now() + 8_000 } = {}) {
+// cleanup: false quando a retenção (DATA_RETENTION=on, api/_lib/retention.js) cuida da limpeza.
+export async function processDueEvents(db, { limit = 50, deadline = Date.now() + 8_000, cleanup = true } = {}) {
   const { data, error } = await db.rpc('claim_inbound_events', { p_limit: limit });
   if (error) return { error: error.message };
   const summary = await processClaimed(db, data || [], { deadline });
-  const cleaned = await cleanupInbound(db);
+  const cleaned = cleanup ? await cleanupInbound(db) : null;
   return { claimed: (data || []).length, ...summary, ...(cleaned ? { cleaned } : {}) };
 }
 

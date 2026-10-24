@@ -6,6 +6,8 @@ import { isFeatureOn } from '../_lib/features.js';
 import { acceptWebhook, applyConnectionUpdate, handleIncomingMessageLegacy, processDueEvents } from '../_lib/inbound.js';
 import { runReconcile } from '../_lib/reconcile.js';
 import { lineHealth, probe, evaluateAlerts } from '../_lib/health.js';
+import { retentionOn, runRetention } from '../_lib/retention.js';
+import { debug } from '../_lib/log.js';
 import crypto from 'crypto';
 
 // Catch-all do WhatsApp. Consolida connect/send/send-media/status/sync/webhook
@@ -293,7 +295,6 @@ async function handleSync(req, res) {
 
   const t0 = Date.now();
   const sid = Math.random().toString(36).slice(2, 6); // rótulo único: syncs concorrentes na mesma instância
-  console.time(`[synctrace ${sid}] auth`);
 
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
@@ -317,7 +318,7 @@ async function handleSync(req, res) {
 
   if (profile?.role !== 'admin') return res.status(403).json({ error: 'Sem permissão' });
 
-  console.timeEnd(`[synctrace ${sid}] auth`);
+  debug(`[sync ${sid}] auth até ${Date.now() - t0}ms`);
 
   const instanceName = `flowmate-${profile.company_id}`;
 
@@ -331,14 +332,12 @@ async function handleSync(req, res) {
     body: { webhook: webhookConfig(webhookUrl) },
   });
 
-  console.time(`[synctrace ${sid}] findChats`);
   const chatsRes = await fetch(`${EVOLUTION_URL}/chat/findChats/${instanceName}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_KEY },
     body: JSON.stringify({}),
   });
-  console.timeEnd(`[synctrace ${sid}] findChats`);
-  console.time(`[synctrace ${sid}] findGroups`);
+  debug(`[sync ${sid}] findChats até ${Date.now() - t0}ms`);
 
   if (!chatsRes.ok) {
     return res.status(400).json({ error: 'Erro ao buscar chats' });
@@ -363,7 +362,7 @@ async function handleSync(req, res) {
     method: 'GET',
     headers: { 'apikey': EVOLUTION_KEY },
   }).catch(() => null);
-  console.timeEnd(`[synctrace ${sid}] findGroups`);
+  debug(`[sync ${sid}] findGroups até ${Date.now() - t0}ms`);
 
   if (discoveryRes?.ok) {
     const groupsData = await discoveryRes.json();
@@ -478,19 +477,17 @@ async function handleSync(req, res) {
     return rows;
   }
 
-  console.time(`[synctrace ${sid}] findMessages`);
   const [individualRows, groupRowsFromChats] = await Promise.all([
     fetchChatMessages(individualChats, false),
     fetchChatMessages(groupChats, true),
   ]);
-  console.timeEnd(`[synctrace ${sid}] findMessages`);
+  debug(`[sync ${sid}] findMessages até ${Date.now() - t0}ms`);
 
   const allRows = [...individualRows, ...groupRowsFromChats]
     .filter(r => r.timestamp >= CUTOFF);
 
   // Upsert em LOTE (dedup por empresa + message_id — CF-A A2), com chunks de 500 para
   // respeitar o limite de linhas por request do PostgREST.
-  console.time(`[synctrace ${sid}] upserts`);
   for (let i = 0; i < allRows.length; i += 500) {
     const { error: upErr } = await admin.from('whatsapp_messages').upsert(allRows.slice(i, i + 500), {
       onConflict: 'company_id,message_id',
@@ -509,24 +506,23 @@ async function handleSync(req, res) {
       if (skipped) console.error(`[sync] ${skipped} mensagem(ns) com message_id de outra empresa (chave global)`);
     } else if (upErr) console.error(`[sync] upsert falhou (lote ${i / 500 + 1}): ${upErr.message}`);
   }
-  console.timeEnd(`[synctrace ${sid}] upserts`);
+  debug(`[sync ${sid}] upserts até ${Date.now() - t0}ms`);
 
   // Prune: regra = SÓ por idade. Apaga mensagens mais velhas que a janela
   // (CUTOFF) + 2 dias de margem; NUNCA apaga por "não veio neste fetch".
   // Só roda se este sync trouxe dados da Evolution: com a Evolution fora do ar ou
   // vazia (ex.: banco dela caiu), o Supabase pode ser a única cópia do histórico.
-  console.time(`[synctrace ${sid}] prune`);
   if (individualChats.length + groupChats.length > 0) {
     await admin.from('whatsapp_messages')
       .delete()
       .eq('instance_name', instanceName)
       .lt('timestamp', CUTOFF - 2 * 86400);
   } else {
-    console.warn(`[synctrace ${sid}] prune ignorado: Evolution não devolveu chats`);
+    console.warn(`[sync ${sid}] prune ignorado: Evolution não devolveu chats`);
   }
-  console.timeEnd(`[synctrace ${sid}] prune`);
+  debug(`[sync ${sid}] prune até ${Date.now() - t0}ms`);
 
-  console.log(`[synctrace] total ${Date.now() - t0}ms (${individualChats.length} chats, ${allRows.length} msgs)`);
+  console.log(`[sync] total ${Date.now() - t0}ms (${individualChats.length} chats, ${allRows.length} msgs)`);
 
   return res.status(200).json({ ok: true, chats: individualChats.length, groups: groupsSynced, imported: allRows.length });
 }
@@ -553,14 +549,15 @@ async function handleWebhook(req, res) {
       : null;
 
     const t0 = Date.now();
-    console.log(`[webhook] event=${event} instance=${instanceName} company=${companyId ?? '-'}`);
+    debug(`[webhook] event=${event} instance=${instanceName} company=${companyId ?? '-'}`);
 
     // CF-A (A1): caixa de entrada durável, só com a chave inbound_inbox ligada na empresa.
     // Grava cru antes de processar; sem gravar → 503 (a Evolution reenvia). Desligada = abaixo.
     if (companyId && (event === 'messages.upsert' || event === 'connection.update')
         && await isFeatureOn(companyId, 'inbound_inbox', db)) {
       const r = await acceptWebhook(db, { companyId, instanceName, event, body });
-      console.log(`[webhook] inbox ${event} → ${r.status} em ${Date.now() - t0}ms`);
+      if (r.status !== 200) console.warn(`[webhook] inbox ${event} → ${r.status} em ${Date.now() - t0}ms`);
+      else debug(`[webhook] inbox ${event} → ${r.status} em ${Date.now() - t0}ms`);
       return res.status(r.status).json(r.body);
     }
 
@@ -572,18 +569,18 @@ async function handleWebhook(req, res) {
     if (event === 'messages.upsert') {
       const msgData = body?.data;
       if (!msgData || !companyId) {
-        console.log(`[webhook] messages.upsert sem dados (data=${typeof msgData}, company=${companyId ?? '-'})`);
+        console.warn(`[webhook] messages.upsert sem dados (data=${typeof msgData}, company=${companyId ?? '-'})`);
         return res.status(200).json({ ok: true });
       }
 
       const messages = Array.isArray(msgData) ? msgData : [msgData];
-      console.log(`[webhook] messages.upsert n=${messages.length} (${Date.now() - t0}ms até o parser)`);
+      debug(`[webhook] messages.upsert n=${messages.length} (${Date.now() - t0}ms até o parser)`);
 
       for (const msg of messages) {
         await handleIncomingMessageLegacy(db, { companyId, instanceName, msg });
       }
 
-      console.log(`[webhook] messages.upsert processadas em ${Date.now() - t0}ms`);
+      debug(`[webhook] messages.upsert processadas em ${Date.now() - t0}ms`);
       return res.status(200).json({ ok: true });
     }
 
@@ -843,7 +840,8 @@ async function handleJobs(req, res) {
   const t0 = Date.now();
   const db = adminClient();
   // Prazo curto: o limite da função no plano da Vercel está "a confirmar" (vercel.json sem maxDuration).
-  const inbound = await processDueEvents(db, { limit: 50, deadline: t0 + 4_000 });
+  // Com DATA_RETENTION=on a limpeza da caixa de entrada passa para a retenção (no fim).
+  const inbound = await processDueEvents(db, { limit: 50, deadline: t0 + 4_000, cleanup: !retentionOn() });
   // A6: reenvio da fila de envio (só há linhas com a chave send_queue ligada).
   let outbound;
   try { outbound = await retryOutbound(db, { deadline: t0 + 6_000 }); }
@@ -854,8 +852,14 @@ async function handleJobs(req, res) {
   let alerts;
   try { alerts = await evaluateAlerts(db, { evoFetch: evo }); }
   catch (e) { alerts = { error: String(e?.message || e).slice(0, 200) }; }
-  console.log(`[jobs] inbound=${JSON.stringify(inbound)} reconcile=${JSON.stringify(reconcile)} outbound=${JSON.stringify(outbound)} alerts=${JSON.stringify(alerts)} em ${Date.now() - t0}ms`);
-  return res.status(200).json({ ok: true, inbound, outbound, reconcile, alerts });
+  // Retenção (DATA_RETENTION=on): por último, com prazo próprio e curto; sem tempo, fica para a próxima.
+  let retention = null;
+  if (retentionOn() && Date.now() < t0 + 8_500) {
+    try { retention = await runRetention(db, { deadline: Math.min(Date.now() + 1_500, t0 + 9_000) }); }
+    catch (e) { retention = { error: String(e?.message || e).slice(0, 200) }; }
+  }
+  console.log(`[jobs] inbound=${JSON.stringify(inbound)} reconcile=${JSON.stringify(reconcile)} outbound=${JSON.stringify(outbound)} alerts=${JSON.stringify(alerts)}${retention ? ` retention=${JSON.stringify(retention)}` : ''} em ${Date.now() - t0}ms`);
+  return res.status(200).json({ ok: true, inbound, outbound, reconcile, alerts, ...(retention ? { retention } : {}) });
 }
 
 // ─── health (CF-A, A5) ───────────────────────────────────────────────────────
