@@ -85,3 +85,73 @@ O que roda sem chave é só o `probe`, só leitura. **SQL:** já aplicado (`ops_
 | `POST /api/whatsapp/health` | 405 |
 | `POST /api/whatsapp/jobs` (sem `JOBS_SECRET`) | 503 |
 | Smoke | idêntico |
+
+## Alerta `line_silent` — linha conectada que parou de receber (2026-11-04)
+**Por quê:** em 04/11 a linha ficou `open`/`connected`, mas a Evolution não guardou nenhuma mensagem
+recebida depois das 07:08 BRT. O `line_disconnected` não pega esse caso. A causa do travamento
+ainda está em investigação; este alerta só detecta.
+
+**Critério** (`evaluateSilence`, em `api/_lib/health.js`; empresas com a chave `health_alerts`):
+- linha com status `connected` e silêncio de mensagens **recebidas** (`whatsapp_messages`,
+  `from_me = false`, só da empresa);
+- o silêncio só conta na janela **08:00–20:00 BRT, segunda a sábado**;
+- só vale para linha com mensagem recebida na janela em **3+ dos 7 dias completos anteriores à
+  última recebida** (os dias mortos não entram na conta);
+- limite = maior entre **60 min** e **4 × o intervalo médio** entre recebidas na janela desses
+  dias, com **teto de 4 h**;
+- alerta novo só abre dentro da janela.
+
+**Comportamento:**
+- abre um alerta por linha e **só fecha quando chega mensagem com hora posterior à abertura** ou quando a linha fica
+  desconectada por mais de 5 min (aí vale o `line_disconnected`). Queda breve não mexe nele;
+- passada a noite ou o domingo, o alerta continua aberto;
+- **diagnóstico no `detail`, só na abertura:** procura a recebida mais nova nas 20 últimas mensagens da Evolution
+  (`chat/findMessages`, limite de 5 s). Mais nova que a do FlowMate (com folga de 60 s) =
+  "provável webhook/entrega"; se não = "provável sessão do WhatsApp travada". Evolution sem
+  responder, ou sem recebidas para comparar, = "causa não verificada", e o alerta abre mesmo assim. A v2.3.7 ignora o filtro
+  `fromMe:false`, por isso o filtro é feito no código;
+- erro ao ler `whatsapp_messages`: o alerta fica como está e os demais seguem;
+- aparece na aba Saúde e no e-mail, como os outros. **Sem SQL** (`kind` é texto livre).
+
+**Custo:** o caminho comum é 2 leituras por rodada. As 6 contagens só rodam dentro da janela, depois
+de 60 min de silêncio e sem alerta aberto. A Evolution só é consultada na abertura, com prazo no
+`/jobs` (depois dele, "causa não verificada", para sobrar tempo ao e-mail).
+
+**Limites conhecidos** (calibrar com uma semana real antes de ligar em cliente):
+- **sábado e feriado:** empresa que não abre nesses dias e tem movimento pode gerar alerta, porque a
+  base é única para a semana;
+- **abertura da manhã:** o silêncio soma o fim do dia anterior, então linha movimentada pode alertar
+  desde as 08:00 se nada chegou desde a noite anterior, mesmo que o expediente comece depois;
+- **rajadas:** a média usa as 12 h inteiras; linha concentrada de manhã pode estourar à tarde;
+- **sem cobertura:** linha com menos de 3 dias ativos não alerta, e a detecção pode levar até 4 h de
+  janela;
+- **mensagem atrasada não fecha:** a comparação usa a hora da mensagem. Recuperada (fila da sessão
+  que voltou, reconciliação) com hora anterior à abertura deixa o alerta aberto até chegar uma mais
+  nova, o que em linha lenta pode levar horas. Sem alerta aberto, a reconciliação pode impedir a
+  abertura e esconder um webhook quebrado;
+- **diagnóstico congelado:** a causa é a vista na abertura. Se a Evolution não respondeu naquela hora,
+  fica "causa não verificada" até o alerta fechar;
+- **prazo do job:** o `deadline` protege só o diagnóstico. O limite da função na Vercel segue a
+  confirmar; confirmar antes de estender `health_alerts` a outras empresas, para o e-mail ter tempo;
+- linha que volta depois de dias desconectada pode alertar logo ao reconectar, porque o silêncio
+  conta desde a última recebida;
+- mensagem recebida em grupo conta como recebida (o que importa é a sessão estar viva);
+- o diagnóstico olha só as 20 últimas mensagens da Evolution: se os envios esconderem todas as
+  recebidas, sai "causa não verificada";
+- **não reinicia nada sozinho.** Fica para quando o alerta tiver se mostrado confiável.
+
+**Para funcionar:** chave `health_alerts` na empresa + agendador rodando (`JOBS_SECRET` e PARTE 7 do
+`supabase_cf_a.sql`). Em 04/11, `POST /api/whatsapp/jobs` ainda respondia 503 (sem `JOBS_SECRET`).
+
+**Testes locais: 46/46**, com banco e Evolution falsos:
+- janela e limite;
+- caso real: última recebida 07:08 em dia útil, às 08:59 não alerta e às 09:00 alerta;
+- alerta único, fechamento só com mensagem (segue aberto dias depois, sem novas leituras);
+- os três diagnósticos e a Evolution com erro, lançando exceção ou pendurada;
+- madrugada, domingo, pouco movimento e sem a chave não alertam;
+- outra empresa e mensagem enviada não contam;
+- falha de leitura;
+- os alertas antigos (`line_disconnected`, `dead_events`, `write_failing`) e o e-mail sem repetir.
+
+Build ok. As suítes A1–A6 antigas não existem mais na pasta temporária; o diff só toca o
+`health.js`, o rótulo da tela e 1 linha do `/jobs` (o `deadline`). **Não testado:** em produção com a chave ligada.

@@ -850,7 +850,7 @@ async function handleJobs(req, res) {
   const reconcile = await runReconcile(db, evo, { deadline: t0 + 8_000 });
   // A5: alertas (linha: empresas com a chave health_alerts; infra: OPS_ALERTS=on).
   let alerts;
-  try { alerts = await evaluateAlerts(db, { evoFetch: evo }); }
+  try { alerts = await evaluateAlerts(db, { evoFetch: evo, deadline: t0 + 9_000 }); }
   catch (e) { alerts = { error: String(e?.message || e).slice(0, 200) }; }
   // Retenção (DATA_RETENTION=on): por último, com prazo próprio e curto; sem tempo, fica para a próxima.
   let retention = null;

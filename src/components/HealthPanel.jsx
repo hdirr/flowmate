@@ -5,6 +5,7 @@ import { Wifi, WifiOff, RefreshCw, AlertTriangle, CheckCircle2, Inbox, Server } 
 
 const ALERT_TEXT = {
   line_disconnected: 'Linha desconectada',
+  line_silent: 'Linha conectada, mas sem receber mensagens',
   write_failing: 'Mensagens recebidas com falha ao gravar',
   dead_events: 'Eventos que esgotaram as tentativas',
   evolution_down: 'Servidor do WhatsApp fora do ar',
